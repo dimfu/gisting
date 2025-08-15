@@ -2,30 +2,100 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/go-github/v74/github"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/github"
+	g "golang.org/x/oauth2/github"
 )
 
+// tui components
+type model struct {
+	count   int
+	closeCh chan os.Signal
+}
+type tickMsg time.Time
+
 var (
+	token        oauth2.Token
+	cfgPath      string
 	clientId     = flag.String("cid", "", "github client id")
 	clientSecret = flag.String("cs", "", "github client id")
 )
+
+func setup(t *oauth2.Token) error {
+	cfgdir, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	gistingpath := path.Join(cfgdir, "gisting")
+	_, err = os.Stat(gistingpath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := os.Mkdir(gistingpath, 0755); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	cfgPath = path.Join(gistingpath, "config.json")
+	_, err = os.Stat(cfgPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			f, err := os.Create(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			e := json.NewEncoder(f)
+			e.SetIndent("", "  ")
+			if err := e.Encode(&token); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	cfg, err := os.Open(cfgPath)
+	if err != nil {
+		return err
+	}
+	defer cfg.Close()
+
+	decoder := json.NewDecoder(cfg)
+	err = decoder.Decode(&t)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func init() {
 	flag.Parse()
 	if *clientId == "" || *clientSecret == "" {
 		panic("Client ID and secret cannot be empty")
 	}
+
+	if err := setup(&token); err != nil {
+		panic(err)
+	}
+
+	fmt.Println(token)
 }
 
 func main() {
@@ -36,7 +106,7 @@ func main() {
 	conf := oauth2.Config{
 		ClientID:     *clientId,
 		ClientSecret: *clientSecret,
-		Endpoint:     github.Endpoint,
+		Endpoint:     g.Endpoint,
 	}
 
 	type callbackResult struct {
@@ -45,7 +115,7 @@ func main() {
 	callbackRes := make(chan callbackResult, 1)
 
 	// http client with oauth transport
-	var client *http.Client
+	var client *github.Client
 
 	// Use the custom HTTP client when requesting a token.
 	httpClient := &http.Client{Timeout: 2 * time.Second}
@@ -71,22 +141,30 @@ func main() {
 			http.Error(w, "Could not exchange code for token"+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		client = conf.Client(ctx, tok)
-		resp, err := client.Get("https://api.github.com/user")
+		// make it zero so that it wont expire
+		tok.Expiry = time.Time{}
+		// replace initial token with the new one
+		token = *tok
+		b, err := json.Marshal(token)
 		if err != nil {
 			res.err = err
-			http.Error(w, "Failed to get user info: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Could not marshal json token", http.StatusInternalServerError)
 			return
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
+		if err := os.WriteFile(cfgPath, b, 0644); err != nil {
 			res.err = err
-			http.Error(w, "Failed to read response: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Could not write token to gisting config", http.StatusInternalServerError)
 			return
 		}
 
-		fmt.Fprintf(w, "Token: %+v\nUser Info: %s\n", tok, body)
+		client = github.NewClient(conf.Client(ctx, tok))
+		user, _, err := client.Users.Get(ctx, "")
+		if err != nil {
+			res.err = err
+			http.Error(w, "Could not get user "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprintf(w, "Token: %+v\nUser Info: %s\n", tok, user.String())
 	}))
 	s.Handler = mux
 
@@ -99,16 +177,35 @@ func main() {
 	close := make(chan os.Signal, 1)
 	signal.Notify(close, syscall.SIGINT, syscall.SIGTERM)
 
-	url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-	fmt.Printf("Visit the URL for the auth dialog: %v\n", url)
-	res := <-callbackRes
-
-	if res.err != nil {
-		close <- syscall.SIGTERM
-		log.Printf("Could not authorize user: %v\n", res.err)
+	// handle initial and persistent authentication
+	if token.AccessToken != "" {
+		client = github.NewClient(conf.Client(ctx, &token))
+		user, _, err := client.Users.Get(ctx, "")
+		if err != nil {
+			log.Println(err)
+			close <- syscall.SIGTERM
+		}
+		log.Printf("Welcome back %s", user.GetName())
+		callbackRes <- callbackResult{err: nil}
 	} else {
-		log.Println("Authentication succeeded")
-		// do something with tui, with http.Client with oauth transport
+		url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
+		fmt.Printf("Visit the URL for the auth dialog: %v\n", url)
+		res := <-callbackRes
+
+		if res.err != nil {
+			close <- syscall.SIGTERM
+			log.Printf("Could not authorize user: %v\n", res.err)
+		}
+	}
+
+	log.Println("Authentication succeeded")
+	p := tea.NewProgram(model{
+		count:   5,
+		closeCh: close,
+	}, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		log.Println(err)
+		close <- syscall.SIGTERM
 	}
 
 	<-close
@@ -121,4 +218,38 @@ func main() {
 	if err := s.Shutdown(ctx); err != nil {
 		panic(err)
 	}
+}
+
+func (m model) Init() tea.Cmd {
+	return tick
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.closeCh <- syscall.SIGTERM
+			return m, tea.Quit
+		case "ctrl+z":
+			return m, tea.Suspend
+		}
+
+	case tickMsg:
+		m.count--
+		if m.count <= 0 {
+			m.closeCh <- syscall.SIGTERM
+			return m, tea.Quit
+		}
+		return m, tick
+	}
+	return m, nil
+}
+func (m model) View() string {
+	return fmt.Sprintf("Hi. This program will exit in %d seconds.\n\nTo quit sooner press ctrl-c, or press ctrl-z to suspend...\n", m.count)
+}
+
+func tick() tea.Msg {
+	time.Sleep(time.Second)
+	return tickMsg{}
 }
