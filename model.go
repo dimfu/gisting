@@ -18,7 +18,9 @@ import (
 )
 
 var (
-	docStyle    = lipgloss.NewStyle().Margin(1, 2)
+	listStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("238")).Margin(0, 2, 0, 2)
 	cursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
 
 	cursorLineStyle = lipgloss.NewStyle().
@@ -35,11 +37,11 @@ var (
 				Foreground(lipgloss.Color("99"))
 
 	focusedBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("238"))
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("238")).Margin(0, 2, 0, 0)
 
 	blurredBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.HiddenBorder())
+				Border(lipgloss.HiddenBorder()).Margin(0, 2, 0, 0)
 )
 
 func newTextarea() textarea.Model {
@@ -67,8 +69,8 @@ type model struct {
 	closeCh chan os.Signal
 	github  *github.Client
 
-	terminalWidth  int
-	terminalHeight int
+	width  int
+	height int
 
 	// tui area
 	list     list.Model
@@ -101,8 +103,8 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 				key.WithHelp("shift+tab", "prev"),
 			),
 			quit: key.NewBinding(
-				key.WithKeys("esc", "ctrl+c"),
-				key.WithHelp("esc", "quit"),
+				key.WithKeys("ctrl+c"),
+				key.WithHelp("ctrl+c", "quit"),
 			),
 		},
 	}
@@ -178,8 +180,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.textarea.Focused() {
 				m.textarea.Blur()
-				return m, nil
 			}
+			return m, nil
 		case "m":
 			if !m.textarea.Focused() {
 				cmd = m.textarea.Focus()
@@ -199,53 +201,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// navigation handler for the list
+		if m.textarea.Focused() {
+			m.textarea, cmd = m.textarea.Update(msg)
+			cmds = append(cmds, cmd)
+		} else {
+			switch msg.String() {
+			case "up", "down", "j", "k":
+				m.list, cmd = m.list.Update(msg)
+				cmds = append(cmds, cmd)
+			default:
+				m.list, cmd = m.list.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+		}
 	case tea.WindowSizeMsg:
-		m.terminalWidth = msg.Width
-		m.terminalHeight = msg.Height
+		m.width = msg.Width
+		m.height = msg.Height
 
-		h, v := docStyle.GetFrameSize()
-		availableWidth := msg.Width - h
-		leftWidth := availableWidth / 2
-		rightWidth := availableWidth - leftWidth
+		listWidth := m.width * 20 / 100
+		textareaWidth := m.width * 80 / 100
 
-		// Set sizes for both components
-		m.list.SetSize(leftWidth, msg.Height-v)
-		m.textarea.SetWidth(rightWidth)
-		m.textarea.SetHeight(msg.Height - v)
+		m.list.SetWidth(listWidth)
+		m.list.SetHeight(m.height - listStyle.GetVerticalFrameSize())
+
+		m.textarea.SetWidth(textareaWidth - focusedBorderStyle.GetHorizontalMargins() - listStyle.GetHorizontalMargins())
+		m.textarea.SetHeight(m.height - focusedBorderStyle.GetVerticalFrameSize())
+	default:
+		m.list, cmd = m.list.Update(msg)
+		cmds = append(cmds, cmd)
+
+		m.textarea, cmd = m.textarea.Update(msg)
+		cmds = append(cmds, cmd)
 	}
-
-	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
-
-	m.textarea, cmd = m.textarea.Update(msg)
-	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
-	// Get the current terminal size
-	width, height := m.getTerminalSize()
-
-	// Calculate 50% width for each side (accounting for margins/padding)
-	h, v := docStyle.GetFrameSize()
-	availableWidth := width - h
-	leftWidth := availableWidth / 2
-	rightWidth := availableWidth - leftWidth // Handle odd widths
-
-	// Set the list size to use half the available space
-	m.list.SetSize(leftWidth, height-v)
-
-	// Set the textarea size explicitly
-	m.textarea.SetWidth(rightWidth)
-	m.textarea.SetHeight(height - v)
-
-	left := docStyle.Render(m.list.View())
-	right := m.textarea.View()
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-}
-
-func (m model) getTerminalSize() (int, int) {
-	return m.terminalWidth, m.terminalHeight
+	return lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		listStyle.Render(m.list.View()),
+		m.textarea.View(),
+	)
 }
