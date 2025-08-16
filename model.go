@@ -76,7 +76,7 @@ type model struct {
 }
 
 type item struct {
-	title, desc, content string
+	title, desc, rawUrl string
 }
 
 func (i item) Title() string       { return i.title }
@@ -118,7 +118,8 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 	return m
 }
 
-func contentFromRawUrl(client *http.Client, url string) (string, error) {
+func contentFromRawUrl(url string) (string, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", err
@@ -145,14 +146,12 @@ func (m *model) populateList() ([]list.Item, error) {
 	}
 	for _, gist := range gists {
 		for _, f := range gist.GetFiles() {
-			// note: had to extract gist content with the raw url because f.GetContent()
-			// doesn't return anything for some reason...
-			content, err := contentFromRawUrl(httpClient, f.GetRawURL())
-			if err != nil {
-				continue
-			}
 			items = append(items,
-				item{title: f.GetFilename(), desc: gist.GetDescription(), content: content},
+				item{
+					title:  f.GetFilename(),
+					desc:   gist.GetDescription(),
+					rawUrl: f.GetRawURL(),
+				},
 			)
 		}
 	}
@@ -190,9 +189,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.textarea.Focused() {
 				if selected := m.list.SelectedItem(); selected != nil {
 					if it, ok := selected.(item); ok {
-						m.textarea.SetValue(it.content)
-						cmd = m.textarea.Focus()
-						cmds = append(cmds, cmd)
+						content, err := contentFromRawUrl(it.rawUrl)
+						if err == nil {
+							m.textarea.SetValue(content)
+							cmd = m.textarea.Focus()
+							cmds = append(cmds, cmd)
+						}
 					}
 				}
 			}
