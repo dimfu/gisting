@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v74/github"
+	"github.com/ostafen/clover"
 	"golang.org/x/oauth2"
 )
 
@@ -78,7 +80,13 @@ type model struct {
 }
 
 type item struct {
-	title, desc, rawUrl string
+	title     string `clover:"title"`
+	desc      string `clover:"desc"`
+	rawUrl    string `clover:"rawUrl"`
+	updatedAt string `clover:"updatedAt"`
+
+	// to indicate if the gist is just updated or not
+	stale bool
 }
 
 func (i item) Title() string       { return i.title }
@@ -120,16 +128,57 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 	return m
 }
 
-func contentFromRawUrl(url string) (string, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
+func contentFromRawUrl(it item) (string, error) {
+	var content string
+
+	existing, err := storage.db.Query(string(collectionGistContent)).
+		Where(clover.Field("rawUrl").Eq(it.rawUrl)).
+		FindFirst()
 	if err != nil {
+		logs = append(logs, err.Error())
 		return "", err
 	}
-	defer resp.Body.Close()
 
-	contentBytes, _ := io.ReadAll(resp.Body)
-	content := string(contentBytes)
+	if it.stale || existing == nil {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(it.rawUrl)
+		if err != nil {
+			logs = append(logs, err.Error())
+			return "", err
+		}
+		defer resp.Body.Close()
+
+		contentBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logs = append(logs, err.Error())
+			return "", err
+		}
+		content = string(contentBytes)
+		logs = append(logs, fmt.Sprintf("stale %s", content))
+
+		if existing == nil {
+			existing = clover.NewDocument()
+			existing.Set("rawUrl", it.rawUrl)
+		}
+
+		existing.SetAll(map[string]any{
+			"title":     it.title,
+			"desc":      it.desc,
+			"rawUrl":    it.rawUrl,
+			"updatedAt": it.updatedAt,
+			"content":   content,
+		})
+
+		if err := storage.db.Save(string(collectionGistContent), existing); err != nil {
+			logs = append(logs, err.Error())
+			return "", err
+		}
+	} else {
+		if val, ok := existing.Get("content").(string); ok {
+			content = val
+		}
+	}
+
 	return content, nil
 }
 
@@ -146,17 +195,59 @@ func (m *model) populateList() ([]list.Item, error) {
 	if err != nil {
 		return items, err
 	}
+
+	docs := []*clover.Document{}
 	for _, gist := range gists {
 		for _, f := range gist.GetFiles() {
-			items = append(items,
-				item{
-					title:  f.GetFilename(),
-					desc:   gist.GetDescription(),
-					rawUrl: f.GetRawURL(),
-				},
-			)
+			i := item{
+				title:     f.GetFilename(),
+				desc:      gist.GetDescription(),
+				rawUrl:    f.GetRawURL(),
+				updatedAt: gist.GetUpdatedAt().String(),
+				stale:     false,
+			}
+
+			existing, err := storage.db.Query(string(collectionGists)).Where(clover.Field("rawUrl").Eq(i.rawUrl)).FindFirst()
+			if err != nil {
+				continue
+			}
+
+			if existing != nil {
+				// if existing data is unchanged (based on the date time) skip db operations since there is nothing to change
+				existingUA, _ := existing.Get("updatedAt").(string)
+				if existingUA >= i.updatedAt {
+					items = append(items, i)
+					continue
+				}
+				// TODO: should update the content of this gist
+				i.stale = true
+				existing.Set("updatedAt", i.updatedAt)
+				if err := storage.db.Save(string(collectionGists), existing); err != nil {
+					return items, fmt.Errorf("failed to update gist: %w", err)
+				}
+			} else {
+				doc := clover.NewDocument()
+				doc.SetAll(map[string]any{
+					"title":     i.title,
+					"desc":      i.desc,
+					"rawUrl":    i.rawUrl,
+					"updatedAt": i.updatedAt,
+				})
+				docs = append(docs, doc)
+			}
+
+			// append to items array for the list user interface
+			items = append(items, i)
 		}
 	}
+
+	// insert new gist records into the collectiion
+	if len(docs) > 0 {
+		if err := storage.db.Insert(string(collectionGists), docs...); err != nil {
+			return items, err
+		}
+	}
+
 	return items, nil
 }
 
@@ -191,7 +282,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.textarea.Focused() {
 				if selected := m.list.SelectedItem(); selected != nil {
 					if it, ok := selected.(item); ok {
-						content, err := contentFromRawUrl(it.rawUrl)
+						content, err := contentFromRawUrl(it)
 						if err == nil {
 							m.textarea.SetValue(content)
 							cmd = m.textarea.Focus()

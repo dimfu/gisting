@@ -20,10 +20,17 @@ import (
 )
 
 var (
-	token        oauth2.Token
-	cfgPath      string
+	token   oauth2.Token
+	cfgPath string
+
+	storage = new(store)
+
 	clientId     = flag.String("cid", "", "github client id")
 	clientSecret = flag.String("cs", "", "github client id")
+
+	drop = flag.Bool("drop", false, "drop collections at start up")
+
+	logs = []any{}
 )
 
 func setup(t *oauth2.Token) error {
@@ -75,6 +82,24 @@ func setup(t *oauth2.Token) error {
 		return err
 	}
 
+	if err := storage.init(gistingpath); err != nil {
+		return err
+	}
+
+	if *drop {
+		for _, c := range collections {
+			if err := storage.db.DropCollection(string(c)); err != nil {
+				panic(err)
+			}
+		}
+		storage.db.Close()
+
+		// re init the database
+		if err := storage.init(gistingpath); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -87,11 +112,10 @@ func init() {
 	if err := setup(&token); err != nil {
 		panic(err)
 	}
-
-	fmt.Println(token)
 }
 
 func main() {
+	defer storage.db.Close()
 	s := &http.Server{
 		Addr: ":8080",
 	}
@@ -115,9 +139,6 @@ func main() {
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
 
 	mux := &http.ServeMux{}
-	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello World"))
-	}))
 	mux.Handle("/callback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		res := callbackResult{}
 		defer func() {
@@ -202,8 +223,9 @@ func main() {
 
 	<-close
 
-	// discard client
-	_ = client
+	for _, s := range logs {
+		log.Println(s)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
