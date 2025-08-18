@@ -11,6 +11,7 @@ import (
 
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,30 +22,45 @@ import (
 )
 
 var (
-	listStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("238")).Margin(0, 2, 0, 2)
-	cursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+	// list styles
+	listStyleBlurred = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("237")).Margin(0, 2, 0, 2)
 
-	cursorLineStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("57")).
-			Foreground(lipgloss.Color("230"))
+	listStyleFocused = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("215")).Margin(0, 2, 0, 2)
 
-	placeholderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("238"))
-
-	endOfBufferStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("235"))
-
-	focusedPlaceholderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("99"))
-
+	// editor styles
 	focusedBorderStyle = lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("238")).Margin(0, 2, 0, 0)
+				BorderForeground(lipgloss.Color("215")).Margin(0, 2, 0, 0)
 
 	blurredBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.HiddenBorder()).Margin(0, 2, 0, 0)
+				Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("237")).Margin(0, 2, 0, 0)
+	normalModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3C3836")).Foreground(lipgloss.Color("255"))
+	insertModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("26")).Foreground(lipgloss.Color("255"))
+	visualModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("127")).Foreground(lipgloss.Color("255"))
+	statusLineStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3c3836"))
+	lineNumberStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#3c3836")).PaddingLeft(2)
+)
+
+var (
+	bindings = []key.Binding{
+		key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
+		key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev")),
+		key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+	}
+)
+
+var (
+	gruvboxBg     = lipgloss.Color("#282828")
+	gruvboxFg     = lipgloss.Color("#ebdbb2")
+	gruvboxGray   = lipgloss.Color("#928374")
+	gruvboxYellow = lipgloss.Color("#fabd2f")
+	gruvboxBlue   = lipgloss.Color("#83a598")
+	gruvboxGreen  = lipgloss.Color("#b8bb26")
+	gruvboxRed    = lipgloss.Color("#fb4934")
 )
 
 type model struct {
@@ -58,6 +74,24 @@ type model struct {
 	// tui area
 	list   list.Model
 	editor editor.Model
+	help   help.Model
+}
+
+type keymap struct {
+	left  key.Binding
+	right key.Binding
+	quit  key.Binding
+}
+
+func (k keymap) ShortHelp() []key.Binding {
+	return []key.Binding{k.left, k.right, k.quit}
+}
+
+func (k keymap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.left, k.right},
+		{k.quit},
+	}
 }
 
 type item struct {
@@ -66,7 +100,6 @@ type item struct {
 	rawUrl    string `clover:"rawUrl"`
 	updatedAt string `clover:"updatedAt"`
 
-	// to indicate if the gist is just updated or not
 	stale bool
 }
 
@@ -74,8 +107,37 @@ func (i item) Title() string       { return i.title }
 func (i item) Description() string { return i.desc }
 func (i item) FilterValue() string { return i.title }
 
-type keymap = struct {
-	next, prev, add, remove, quit key.Binding
+func newList(items []list.Item) list.Model {
+	delegate := list.NewDefaultDelegate()
+
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
+		BorderForeground(gruvboxBlue).
+		Foreground(gruvboxYellow).
+		Background(gruvboxBg).
+		Bold(true)
+
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
+		BorderForeground(gruvboxBlue).
+		Foreground(gruvboxFg).
+		Background(gruvboxBg)
+
+	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
+		Foreground(gruvboxFg)
+
+	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
+		Foreground(gruvboxGray)
+
+	l := list.New(items, delegate, 0, 0)
+	l.Title = "My Gists"
+	l.Styles.Title = lipgloss.NewStyle().
+		Foreground(gruvboxBlue).
+		Background(gruvboxBg).
+		Bold(true).
+		Padding(0, 1)
+
+	l.SetShowStatusBar(false)
+
+	return l
 }
 
 func newModel(githubclient *github.Client, closech chan os.Signal) model {
@@ -83,19 +145,20 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 		github:  githubclient,
 		closeCh: closech,
 		keymap: keymap{
-			next: key.NewBinding(
-				key.WithKeys("tab"),
-				key.WithHelp("tab", "next"),
+			left: key.NewBinding(
+				key.WithKeys("ctrl+h"),
+				key.WithHelp("ctrl+h", "left pane"),
 			),
-			prev: key.NewBinding(
-				key.WithKeys("shift+tab"),
-				key.WithHelp("shift+tab", "prev"),
+			right: key.NewBinding(
+				key.WithKeys("ctrl+l"),
+				key.WithHelp("ctrl+l", "right pane"),
 			),
 			quit: key.NewBinding(
 				key.WithKeys("ctrl+c"),
 				key.WithHelp("ctrl+c", "quit"),
 			),
 		},
+		help: help.New(),
 	}
 
 	items, err := m.populateList()
@@ -103,15 +166,20 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 		panic("Could not populate gists on initial start up")
 	}
 
-	m.list = list.New(items, list.NewDefaultDelegate(), 0, 0)
+	m.list = newList(items)
 
 	// dont care about the width and height because we set it inside the tea.WindowSizeMsg
 	textEditor := editor.New(0, 0)
 	textEditor.ShowMessages(true)
 	textEditor.SetCursorBlinkMode(true)
-	textEditor.SetLanguage("go", "catppuccin-mocha")
-
-	t := []editor.Theme{}
+	textEditor.SetLanguage("go", "gruvbox")
+	textEditor.WithTheme(editor.Theme{
+		NormalModeStyle: normalModeStyle,
+		InsertModeStyle: insertModeStyle,
+		VisualModeStyle: visualModeStyle,
+		StatusLineStyle: statusLineStyle,
+		LineNumberStyle: lineNumberStyle,
+	})
 
 	m.editor = textEditor
 
@@ -305,9 +373,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		editorWidth := (m.width * 80 / 100) - 10
 
 		m.list.SetWidth(listWidth)
-		m.list.SetHeight(m.height - listStyle.GetVerticalFrameSize())
+		m.list.SetHeight(m.height - listStyleBlurred.GetVerticalFrameSize() - 1)
 
-		m.editor.SetSize(editorWidth, m.height-focusedBorderStyle.GetVerticalFrameSize())
+		m.editor.SetSize(editorWidth, m.height-focusedBorderStyle.GetVerticalFrameSize()-1)
 
 	default:
 		m.list, cmd = m.list.Update(msg)
@@ -317,9 +385,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return lipgloss.JoinHorizontal(
+	editorStyle := blurredBorderStyle.Render(m.editor.View())
+	listStyle := listStyleFocused.Render(m.list.View())
+	if m.editor.IsFocused() {
+		editorStyle = focusedBorderStyle.Render(m.editor.View())
+		listStyle = listStyleBlurred.Render(m.list.View())
+	}
+
+	mainView := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		listStyle.Render(m.list.View()),
-		focusedBorderStyle.Render(m.editor.View()),
+		listStyle,
+		editorStyle,
+	)
+
+	helpView := lipgloss.NewStyle().MarginLeft(2).Render(m.help.View(m.keymap))
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		mainView,
+		helpView,
 	)
 }
