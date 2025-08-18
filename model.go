@@ -9,9 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v74/github"
@@ -46,26 +47,6 @@ var (
 				Border(lipgloss.HiddenBorder()).Margin(0, 2, 0, 0)
 )
 
-func newTextarea() textarea.Model {
-	t := textarea.New()
-	t.Prompt = ""
-	t.Placeholder = "Type something"
-	t.ShowLineNumbers = true
-	t.Cursor.Style = cursorStyle
-	t.FocusedStyle.Placeholder = focusedPlaceholderStyle
-	t.BlurredStyle.Placeholder = placeholderStyle
-	t.FocusedStyle.CursorLine = cursorLineStyle
-	t.FocusedStyle.Base = focusedBorderStyle
-	t.BlurredStyle.Base = blurredBorderStyle
-	t.FocusedStyle.EndOfBuffer = endOfBufferStyle
-	t.BlurredStyle.EndOfBuffer = endOfBufferStyle
-	t.KeyMap.DeleteWordBackward.SetEnabled(false)
-	t.KeyMap.LineNext = key.NewBinding(key.WithKeys("down"))
-	t.KeyMap.LinePrevious = key.NewBinding(key.WithKeys("up"))
-	t.Blur()
-	return t
-}
-
 type model struct {
 	keymap  keymap
 	closeCh chan os.Signal
@@ -75,8 +56,8 @@ type model struct {
 	height int
 
 	// tui area
-	list     list.Model
-	textarea textarea.Model
+	list   list.Model
+	editor editor.Model
 }
 
 type item struct {
@@ -123,7 +104,16 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 	}
 
 	m.list = list.New(items, list.NewDefaultDelegate(), 0, 0)
-	m.textarea = newTextarea()
+
+	// dont care about the width and height because we set it inside the tea.WindowSizeMsg
+	textEditor := editor.New(0, 0)
+	textEditor.ShowMessages(true)
+	textEditor.SetCursorBlinkMode(true)
+	textEditor.SetLanguage("go", "catppuccin-mocha")
+
+	t := []editor.Theme{}
+
+	m.editor = textEditor
 
 	return m
 }
@@ -253,7 +243,7 @@ func (m *model) populateList() ([]list.Item, error) {
 
 // tui lifecycles
 func (m model) Init() tea.Cmd {
-	return nil
+	return m.editor.CursorBlink()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -261,41 +251,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case editor.SaveMsg:
+		if m.editor.IsFocused() {
+			m.editor.Blur()
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
-			m.closeCh <- syscall.SIGTERM
-			return m, tea.Quit
+			if !m.editor.IsFocused() {
+				m.closeCh <- syscall.SIGTERM
+				return m, tea.Quit
+			}
+		case "ctrl+h":
+			m.editor.Blur()
 		case "ctrl+z":
 			return m, tea.Suspend
-		case "esc":
-			if m.textarea.Focused() {
-				m.textarea.Blur()
-			}
-			return m, nil
-		case "m":
-			if !m.textarea.Focused() {
-				cmd = m.textarea.Focus()
-				cmds = append(cmds, cmd)
-			}
-		case "enter":
-			if !m.textarea.Focused() {
+		case "enter", "ctrl+l":
+			if !m.editor.IsFocused() {
 				if selected := m.list.SelectedItem(); selected != nil {
 					if it, ok := selected.(item); ok {
 						content, err := contentFromRawUrl(it)
 						if err == nil {
-							m.textarea.SetValue(content)
-							cmd = m.textarea.Focus()
-							cmds = append(cmds, cmd)
+							m.editor.SetContent(content)
+							m.editor.Focus()
 						}
 					}
 				}
 			}
 		}
+
 		// navigation handler for the list
-		if m.textarea.Focused() {
-			m.textarea, cmd = m.textarea.Update(msg)
+		if m.editor.IsFocused() {
+			editorModel, cmd := m.editor.Update(msg)
 			cmds = append(cmds, cmd)
+			m.editor = editorModel.(editor.Model)
 		} else {
 			switch msg.String() {
 			case "up", "down", "j", "k":
@@ -306,26 +296,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
 		listWidth := m.width * 20 / 100
-		textareaWidth := m.width * 80 / 100
+		editorWidth := (m.width * 80 / 100) - 10
 
 		m.list.SetWidth(listWidth)
 		m.list.SetHeight(m.height - listStyle.GetVerticalFrameSize())
 
-		m.textarea.SetWidth(textareaWidth - focusedBorderStyle.GetHorizontalMargins() - listStyle.GetHorizontalMargins())
-		m.textarea.SetHeight(m.height - focusedBorderStyle.GetVerticalFrameSize())
+		m.editor.SetSize(editorWidth, m.height-focusedBorderStyle.GetVerticalFrameSize())
+
 	default:
 		m.list, cmd = m.list.Update(msg)
 		cmds = append(cmds, cmd)
-
-		m.textarea, cmd = m.textarea.Update(msg)
-		cmds = append(cmds, cmd)
 	}
-
 	return m, tea.Batch(cmds...)
 }
 
@@ -333,6 +320,6 @@ func (m model) View() string {
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		listStyle.Render(m.list.View()),
-		m.textarea.View(),
+		focusedBorderStyle.Render(m.editor.View()),
 	)
 }

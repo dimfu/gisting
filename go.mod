@@ -1,6 +1,8 @@
 module github.com/dimfu/gisting
 
-go 1.23.10
+go 1.24.0
+
+toolchain go1.24.3
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0
@@ -12,6 +14,7 @@ require (
 )
 
 require (
+	github.com/alecthomas/chroma/v2 v2.18.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
@@ -23,6 +26,7 @@ require (
 	github.com/dgraph-io/badger/v3 v3.2103.2 // indirect
 	github.com/dgraph-io/ristretto v0.1.0 // indirect
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -32,6 +36,8 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13 // indirect
+	github.com/ionut-t/goeditor/core v0.1.8 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
