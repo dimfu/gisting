@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/google/go-github/v74 v74.0.0
+	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13
 	github.com/ostafen/clover v1.2.0
 	golang.org/x/oauth2 v0.30.0
 )
@@ -36,7 +37,6 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13 // indirect
 	github.com/ionut-t/goeditor/core v0.1.8 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect

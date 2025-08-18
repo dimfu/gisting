@@ -2,27 +2,26 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"path"
 	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v74/github"
 	"golang.org/x/oauth2"
-	g "golang.org/x/oauth2/github"
 )
 
 var (
-	token   oauth2.Token
+	// TODO: should put cfgPath inside config.json later
 	cfgPath string
 
+	auth    = new(authManager)
 	storage = new(store)
 
 	clientId     = flag.String("cid", "", "github client id")
@@ -33,83 +32,17 @@ var (
 	logs = []any{}
 )
 
-func setup(t *oauth2.Token) error {
-	cfgdir, err := os.UserConfigDir()
-	if err != nil {
-		return err
-	}
-	gistingpath := path.Join(cfgdir, "gisting")
-	_, err = os.Stat(gistingpath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if err := os.Mkdir(gistingpath, 0755); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	}
-
-	cfgPath = path.Join(gistingpath, "config.json")
-	_, err = os.Stat(cfgPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			f, err := os.Create(cfgPath)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-
-			e := json.NewEncoder(f)
-			e.SetIndent("", "  ")
-			if err := e.Encode(&token); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	}
-
-	cfg, err := os.Open(cfgPath)
-	if err != nil {
-		return err
-	}
-	defer cfg.Close()
-
-	decoder := json.NewDecoder(cfg)
-	err = decoder.Decode(&t)
-	if err != nil {
-		return err
-	}
-
-	if err := storage.init(gistingpath); err != nil {
-		return err
-	}
-
-	if *drop {
-		for _, c := range collections {
-			if err := storage.db.DropCollection(string(c)); err != nil {
-				panic(err)
-			}
-		}
-		storage.db.Close()
-
-		// re init the database
-		if err := storage.init(gistingpath); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func init() {
 	flag.Parse()
 	if *clientId == "" || *clientSecret == "" {
-		panic("Client ID and secret cannot be empty")
+		flag.Usage()
+		os.Exit(1)
 	}
 
-	if err := setup(&token); err != nil {
+	auth.init(*clientId, *clientSecret)
+
+	// initiate setup the database and the config file
+	if err := setup(auth.token); err != nil {
 		panic(err)
 	}
 }
@@ -120,65 +53,41 @@ func main() {
 		Addr: ":8080",
 	}
 
-	conf := oauth2.Config{
-		ClientID:     *clientId,
-		ClientSecret: *clientSecret,
-		Endpoint:     g.Endpoint,
-	}
-
-	type callbackResult struct {
-		err error
-	}
-	callbackRes := make(chan callbackResult, 1)
-
 	// http client with oauth transport
 	var client *github.Client
 
-	// Use the custom HTTP client when requesting a token.
 	httpClient := &http.Client{Timeout: 2 * time.Second}
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
 
 	mux := &http.ServeMux{}
 	mux.Handle("/callback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		res := callbackResult{}
+		var cbErr error
 		defer func() {
-			callbackRes <- res
+			auth.callbackChan <- authCallbackResult{error: cbErr}
 		}()
 		code := r.URL.Query().Get("code")
 		if code == "" {
+			cbErr = errors.New("Could not get the oauth code")
 			http.Error(w, "Code not found", http.StatusBadRequest)
 			return
 		}
-		tok, err := conf.Exchange(ctx, code)
-		if err != nil {
-			res.err = err
-			http.Error(w, "Could not exchange code for token"+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// make it zero so that it wont expire
-		tok.Expiry = time.Time{}
-		// replace initial token with the new one
-		token = *tok
-		b, err := json.Marshal(token)
-		if err != nil {
-			res.err = err
-			http.Error(w, "Could not marshal json token", http.StatusInternalServerError)
-			return
-		}
-		if err := os.WriteFile(cfgPath, b, 0644); err != nil {
-			res.err = err
-			http.Error(w, "Could not write token to gisting config", http.StatusInternalServerError)
+
+		if err := auth.exchangeToken(ctx, code); err != nil {
+			cbErr = err
+			http.Error(w, "Error while exchanging auth token "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		client = github.NewClient(conf.Client(ctx, tok))
-		user, _, err := client.Users.Get(ctx, "")
-		if err != nil {
-			res.err = err
-			http.Error(w, "Could not get user "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		fmt.Fprintf(w, "Token: %+v\nUser Info: %s\n", tok, user.String())
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `
+		<html>
+			<body>
+				<h2>Authentication Successful!</h2>
+				<p>You can now close this window and return to the application.</p>
+			</body>
+		</html>
+	`)
 	}))
 	s.Handler = mux
 
@@ -188,41 +97,27 @@ func main() {
 		}
 	}()
 
-	close := make(chan os.Signal, 1)
-	signal.Notify(close, syscall.SIGINT, syscall.SIGTERM)
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
-	// handle initial and persistent authentication
-	if token.AccessToken != "" {
-		client = github.NewClient(conf.Client(ctx, &token))
-		user, _, err := client.Users.Get(ctx, "")
-		if err != nil {
+	client, err := auth.authenticate(ctx, shutdown)
+	if err != nil {
+		log.Printf("Authentication failed: %s\n", err.Error())
+		shutdown <- syscall.SIGTERM
+	}
+
+	if client != nil {
+		log.Println("Authentication succeeded")
+		p := tea.NewProgram(newModel(client, shutdown), tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
 			log.Println(err)
-			close <- syscall.SIGTERM
-		}
-		log.Printf("Welcome back %s", user.GetName())
-		callbackRes <- callbackResult{err: nil}
-	} else {
-		url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-		fmt.Printf("Visit the URL for the auth dialog: %v\n", url)
-		res := <-callbackRes
-
-		if res.err != nil {
-			close <- syscall.SIGTERM
-			log.Printf("Could not authorize user: %v\n", res.err)
+			shutdown <- syscall.SIGTERM
 		}
 	}
 
-	log.Println("Authentication succeeded")
+	<-shutdown
 
-	// main app
-	p := tea.NewProgram(newModel(client, close), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		log.Println(err)
-		close <- syscall.SIGTERM
-	}
-
-	<-close
-
+	// think something smart than ts :skull:
 	for _, s := range logs {
 		log.Println(s)
 	}
