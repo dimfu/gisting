@@ -49,17 +49,21 @@ func init() {
 
 func main() {
 	defer storage.db.Close()
+
+	mux := http.NewServeMux()
 	s := &http.Server{
-		Addr: ":8080",
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	// http client with oauth transport
 	var client *github.Client
 
-	httpClient := &http.Client{Timeout: 2 * time.Second}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
 
-	mux := &http.ServeMux{}
 	mux.Handle("/callback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var cbErr error
 		defer func() {
@@ -89,10 +93,12 @@ func main() {
 		</html>
 	`)
 	}))
-	s.Handler = mux
 
 	go func() {
 		if err := s.ListenAndServe(); err != nil {
+			if errors.Is(err, http.ErrServerClosed) {
+				return
+			}
 			log.Println(err)
 		}
 	}()
@@ -115,16 +121,16 @@ func main() {
 		}
 	}
 
+	// shutdown the http server since its not needed anymore after authentication
+	if err := s.Shutdown(context.Background()); err != nil {
+		panic(err)
+	}
+
 	<-shutdown
+	auth.close()
 
 	// think something smart than ts :skull:
 	for _, s := range logs {
 		log.Println(s)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.Shutdown(ctx); err != nil {
-		panic(err)
 	}
 }
