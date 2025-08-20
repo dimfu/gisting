@@ -362,8 +362,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
 
-	logs = append(logs, m.currentPane)
-
 	switch msg := msg.(type) {
 	case editor.SaveMsg:
 		if m.currentPane == PANE_EDITOR {
@@ -384,8 +382,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previous()
 			return m, nil
 		case "ctrl+l":
-			m.next()
-			return m, nil
+			if m.currentPane != PANE_FILES {
+				m.next()
+				return m, nil
+			}
 		}
 
 		switch m.currentPane {
@@ -419,13 +419,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.fileList, cmd = m.fileList.Update(msg)
 				cmds = append(cmds, cmd)
-			case "enter":
+			case "enter", "ctrl+l":
 				if selected := m.fileList.SelectedItem(); selected != nil {
 					if fileItem, ok := selected.(item); ok {
 						content, err := contentFromRawUrl(fileItem)
 						if err == nil {
 							m.editor.SetContent(content)
 							m.next()
+							return m, func() tea.Msg {
+								return tea.KeyMsg{
+									Type:  tea.KeyRunes,
+									Runes: []rune{},
+								}
+							}
 						}
 					}
 				}
@@ -456,7 +462,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fileList.SetHeight(m.height - listStyleBlurred.GetVerticalFrameSize() - 1)
 
 		m.editor.SetSize(editorWidth, m.height-focusedBorderStyle.GetVerticalFrameSize()-1)
-
 	default:
 	}
 
