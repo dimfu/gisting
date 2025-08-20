@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"syscall"
@@ -22,26 +21,6 @@ import (
 )
 
 var (
-	gistListStyleBlurred = lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("237")).
-				Margin(0, 2, 0, 2)
-
-	gistListStyleFocused = lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("215")).
-				Margin(0, 2, 0, 2)
-
-	fileListStyleBlurred = lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("237")).
-				Margin(0, 2, 0, 0)
-
-	fileListStyleFocused = lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("215")).
-				Margin(0, 2, 0, 0)
-
 	// editor styles
 	focusedBorderStyle = lipgloss.NewStyle().Margin(0, 2, 0, 0).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("215"))
 
@@ -82,17 +61,10 @@ const (
 	PANE_EDITOR
 )
 
-type giststruct struct {
-	name string
-	id   string
-}
-
-func (i giststruct) FilterValue() string { return i.name }
-
 type model struct {
-	gists map[giststruct][]list.Item
+	gists map[gist][]list.Item
 
-	keymap  keymap
+	keymap  Keymap
 	closeCh chan os.Signal
 	github  *github.Client
 
@@ -106,92 +78,43 @@ type model struct {
 	help     help.Model
 
 	currentPane pane
+
+	FilesStyle  FilesBaseStyle
+	GistsStyle  GistsBaseStyle
+	EditorStyle EditorBaseStyle
 }
 
-type keymap struct {
-	left  key.Binding
-	right key.Binding
-	quit  key.Binding
-}
-
-func (k keymap) ShortHelp() []key.Binding {
-	return []key.Binding{k.left, k.right, k.quit}
-}
-
-func (k keymap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.left, k.right},
-		{k.quit},
-	}
-}
-
-type item struct {
-	title     string `clover:"title"`
-	desc      string `clover:"desc"`
-	rawUrl    string `clover:"rawUrl"`
-	updatedAt string `clover:"updatedAt"`
-
-	stale bool
-}
-
-func (i item) Title() string       { return i.title }
-func (i item) Description() string { return i.desc }
-func (i item) FilterValue() string { return i.title }
-
-func newList(items []list.Item) list.Model {
-	delegate := list.NewDefaultDelegate()
-
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(gruvboxYellow).
-		Background(gruvboxBg).
-		Bold(true)
-
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(gruvboxFg).
-		Background(gruvboxBg)
-
-	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
-		Foreground(gruvboxFg)
-
-	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
-		Foreground(gruvboxGray)
-
-	l := list.New(items, delegate, 0, 0)
+func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
+	l := list.New(items, gistsDelegate{styles: styles}, 0, 0)
 	l.Title = "My Gists"
-	l.Styles.Title = lipgloss.NewStyle().
-		Width(35).
-		Foreground(gruvboxBlue).
-		Background(gruvboxBg).
-		Bold(true).
-		Padding(0, 1)
-
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
+	l.Styles.Title = styles.Title
+	l.Styles.TitleBar = styles.TitleBar
+	return l
+}
 
+func newFileList(items []list.Item, styles FilesBaseStyle) list.Model {
+	l := list.New(items, filesDelegate{styles: styles}, 0, 0)
+	l.Title = "Files"
+	l.SetShowStatusBar(false)
+	l.SetShowHelp(false)
+	l.Styles.Title = styles.Title
+	l.Styles.TitleBar = styles.TitleBar
 	return l
 }
 
 func newModel(githubclient *github.Client, closech chan os.Signal) model {
+	defaultStyle := DefaultStyles()
 	m := model{
-		gists:   map[giststruct][]list.Item{},
-		github:  githubclient,
-		closeCh: closech,
-		keymap: keymap{
-			left: key.NewBinding(
-				key.WithKeys("ctrl+h"),
-				key.WithHelp("ctrl+h", "left pane"),
-			),
-			right: key.NewBinding(
-				key.WithKeys("ctrl+l"),
-				key.WithHelp("ctrl+l", "right pane"),
-			),
-			quit: key.NewBinding(
-				key.WithKeys("ctrl+c"),
-				key.WithHelp("ctrl+c", "quit"),
-			),
-		},
+		gists:       map[gist][]list.Item{},
+		github:      githubclient,
+		closeCh:     closech,
+		keymap:      DefaultKeymap,
 		help:        help.New(),
 		currentPane: PANE_GISTS,
+		GistsStyle:  defaultStyle.Gists.Focused,
+		FilesStyle:  defaultStyle.Files.Blurred,
 	}
 
 	if err := m.getGists(); err != nil {
@@ -199,16 +122,17 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 	}
 
 	// populate gist list
-	var firstgist *giststruct
-	gistItems := []list.Item{}
-	for gist := range m.gists {
+	var firstgist *gist
+	gistFiles := []list.Item{}
+	for g := range m.gists {
 		if firstgist == nil {
-			firstgist = &gist
+			firstgist = &g
 		}
-		gistItems = append(gistItems, item{title: gist.name, desc: gist.id})
+		gistFiles = append(gistFiles, gist{id: g.id, name: g.name})
 	}
-	m.gistList = newList(gistItems)
-	m.fileList = newList(m.gists[*firstgist])
+
+	m.gistList = newGistList(gistFiles, m.GistsStyle)
+	m.fileList = newFileList(m.gists[*firstgist], m.FilesStyle)
 
 	// dont care about the width and height because we set it inside the tea.WindowSizeMsg
 	textEditor := editor.New(0, 0)
@@ -226,60 +150,6 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 	m.editor = textEditor
 
 	return m
-}
-
-func contentFromRawUrl(it item) (string, error) {
-	var content string
-
-	existing, err := storage.db.Query(string(collectionGistContent)).
-		Where(clover.Field("rawUrl").Eq(it.rawUrl)).
-		FindFirst()
-	if err != nil {
-		logs = append(logs, err.Error())
-		return "", err
-	}
-
-	if it.stale || existing == nil {
-		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Get(it.rawUrl)
-		if err != nil {
-			logs = append(logs, err.Error())
-			return "", err
-		}
-		defer resp.Body.Close()
-
-		contentBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			logs = append(logs, err.Error())
-			return "", err
-		}
-		content = string(contentBytes)
-		logs = append(logs, fmt.Sprintf("stale %s", content))
-
-		if existing == nil {
-			existing = clover.NewDocument()
-			existing.Set("rawUrl", it.rawUrl)
-		}
-
-		existing.SetAll(map[string]any{
-			"title":     it.title,
-			"desc":      it.desc,
-			"rawUrl":    it.rawUrl,
-			"updatedAt": it.updatedAt,
-			"content":   content,
-		})
-
-		if err := storage.db.Save(string(collectionGistContent), existing); err != nil {
-			logs = append(logs, err.Error())
-			return "", err
-		}
-	} else {
-		if val, ok := existing.Get("content").(string); ok {
-			content = val
-		}
-	}
-
-	return content, nil
 }
 
 func (m *model) next() {
@@ -307,14 +177,14 @@ func (m *model) getGists() error {
 	}
 
 	docs := []*clover.Document{}
-	for _, gist := range gists {
+	for _, g := range gists {
 		items := []list.Item{}
-		for _, f := range gist.GetFiles() {
-			i := item{
+		for _, f := range g.GetFiles() {
+			i := file{
 				title:     f.GetFilename(),
-				desc:      gist.GetDescription(),
+				desc:      g.GetDescription(),
 				rawUrl:    f.GetRawURL(),
-				updatedAt: gist.GetUpdatedAt().String(),
+				updatedAt: g.GetUpdatedAt().String(),
 				stale:     false,
 			}
 
@@ -330,7 +200,6 @@ func (m *model) getGists() error {
 					items = append(items, i)
 					continue
 				}
-				// TODO: should update the content of this gist
 				i.stale = true
 				existing.Set("updatedAt", i.updatedAt)
 				if err := storage.db.Save(string(collectionGists), existing); err != nil {
@@ -348,9 +217,9 @@ func (m *model) getGists() error {
 			}
 			items = append(items, i)
 		}
-		g := giststruct{
-			name: gist.GetDescription(),
-			id:   gist.GetID(),
+		g := gist{
+			name: g.GetDescription(),
+			id:   g.GetID(),
 		}
 		m.gists[g] = items
 	}
@@ -365,7 +234,6 @@ func (m *model) getGists() error {
 	return nil
 }
 
-// tui lifecycles
 func (m model) Init() tea.Cmd {
 	return m.editor.CursorBlink()
 }
@@ -392,11 +260,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Suspend
 		case "ctrl+h":
 			m.previous()
-			return m, nil
+			return m, tea.Batch(m.updateActivePane(msg)...)
 		case "ctrl+l":
 			if m.currentPane != PANE_FILES {
 				m.next()
-				return m, nil
+				return m, tea.Batch(m.updateActivePane(msg)...)
 			}
 		}
 
@@ -407,14 +275,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.gistList, cmd = m.gistList.Update(msg)
 				cmds = append(cmds, cmd)
 				if selected := m.gistList.SelectedItem(); selected != nil {
-					if it, ok := selected.(item); ok {
+					if selectedGist, ok := selected.(gist); ok {
 						for gist, files := range m.gists {
-							if gist.id == it.desc {
-								m.fileList = newList(files)
-								fileListWidth := m.width * 20 / 100
-								m.fileList.SetWidth(fileListWidth)
-								m.fileList.SetHeight(m.height - gistListStyleBlurred.GetVerticalFrameSize() - 1)
-								break
+							if gist.id == selectedGist.id {
+								items := make([]list.Item, len(files))
+								for i, item := range files {
+									logs = append(logs, item)
+									items[i] = item
+								}
+								return m, m.fileList.SetItems(items)
 							}
 						}
 					}
@@ -422,8 +291,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				m.next()
 			default:
-				m.gistList, cmd = m.gistList.Update(msg)
-				cmds = append(cmds, cmd)
+				cmds = append(cmds, m.updateActivePane(msg)...)
 			}
 
 		case PANE_FILES:
@@ -433,11 +301,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			case "enter", "ctrl+l":
 				if selected := m.fileList.SelectedItem(); selected != nil {
-					if fileItem, ok := selected.(item); ok {
-						content, err := contentFromRawUrl(fileItem)
+					if f, ok := selected.(file); ok {
+						content, err := f.content()
 						if err == nil {
 							m.editor.SetContent(content)
 							m.next()
+							// hack to rerender the whole app and show the editor's content
 							return m, func() tea.Msg {
 								return tea.KeyMsg{
 									Type:  tea.KeyRunes,
@@ -448,30 +317,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			default:
-				m.fileList, cmd = m.fileList.Update(msg)
-				cmds = append(cmds, cmd)
+				cmds = append(cmds, m.updateActivePane(msg)...)
 			}
 
 		case PANE_EDITOR:
+			m.GistsStyle = DefaultStyles().Gists.Blurred
+			m.EditorStyle = DefaultStyles().Editor.Focused
+			m.FilesStyle = DefaultStyles().Files.Blurred
+
 			m.editor.Focus()
+
 			editorModel, cmd := m.editor.Update(msg)
 			cmds = append(cmds, cmd)
 			m.editor = editorModel.(editor.Model)
+			cmds = append(cmds, m.updateActivePane(msg)...)
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height
+		m.height = msg.Height - 4
 
 		gistListWidth := m.width * 20 / 100
 		fileListWidth := m.width * 20 / 100
-		editorWidth := (m.width * 60 / 100) + 4
+		editorWidth := (m.width * 60 / 100)
+
+		logs = append(logs, m.width)
 
 		m.gistList.SetWidth(gistListWidth)
-		m.gistList.SetHeight(m.height - gistListStyleBlurred.GetVerticalFrameSize() - 1)
+		m.gistList.SetHeight(m.height)
 
 		m.fileList.SetWidth(fileListWidth)
-		m.fileList.SetHeight(m.height - fileListStyleBlurred.GetVerticalFrameSize() - 1)
+		m.fileList.SetHeight(m.height)
 
 		m.editor.SetSize(editorWidth, m.height-focusedBorderStyle.GetVerticalFrameSize()-1)
 	default:
@@ -480,35 +356,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m model) View() string {
-	var gistList, fileList, editor string
+func (m *model) updateActivePane(msg tea.Msg) []tea.Cmd {
+	var cmds []tea.Cmd
+	var cmd tea.Cmd
 
-	// Style components based on current pane focus
 	switch m.currentPane {
 	case PANE_GISTS:
-		gistList = gistListStyleFocused.Render(m.gistList.View())
-		fileList = fileListStyleBlurred.Render(m.fileList.View())
-		editor = blurredBorderStyle.Render(m.editor.View())
+		m.GistsStyle = DefaultStyles().Gists.Focused
+		m.FilesStyle = DefaultStyles().Files.Blurred
+		m.EditorStyle = DefaultStyles().Editor.Blurred
+		m.gistList, cmd = m.gistList.Update(msg)
+		cmds = append(cmds, cmd)
 	case PANE_FILES:
-		gistList = gistListStyleBlurred.Render(m.gistList.View())
-		fileList = fileListStyleFocused.Render(m.fileList.View())
-		editor = blurredBorderStyle.Render(m.editor.View())
+		m.GistsStyle = DefaultStyles().Gists.Blurred
+		m.FilesStyle = DefaultStyles().Files.Focused
+		m.EditorStyle = DefaultStyles().Editor.Blurred
+		m.fileList, cmd = m.fileList.Update(msg)
+		cmds = append(cmds, cmd)
 	case PANE_EDITOR:
-		gistList = gistListStyleBlurred.Render(m.gistList.View())
-		fileList = fileListStyleBlurred.Render(m.fileList.View())
-		editor = focusedBorderStyle.Render(m.editor.View())
+		m.GistsStyle = DefaultStyles().Gists.Blurred
+		m.FilesStyle = DefaultStyles().Files.Blurred
+		m.EditorStyle = DefaultStyles().Editor.Focused
+		m.editor.Focus()
+		editorModel, cmd := m.editor.Update(msg)
+		cmds = append(cmds, cmd)
+		m.editor = editorModel.(editor.Model)
 	}
 
-	helpView := lipgloss.NewStyle().MarginLeft(2).Render(m.help.View(m.keymap))
+	m.gistList.Styles.TitleBar = m.GistsStyle.TitleBar
+	m.gistList.Styles.Title = m.GistsStyle.Title
 
+	m.fileList.Styles.TitleBar = m.FilesStyle.TitleBar
+	m.fileList.Styles.Title = m.FilesStyle.Title
+
+	return cmds
+}
+
+func (m model) View() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		lipgloss.JoinHorizontal(
 			lipgloss.Top,
-			gistList,
-			fileList,
-			editor,
+			m.GistsStyle.Base.Render(m.gistList.View()),
+			m.FilesStyle.Base.Render(m.fileList.View()),
+			blurredBorderStyle.Render(m.editor.View()),
 		),
-		helpView,
+		lipgloss.NewStyle().MarginLeft(2).Render(m.help.View(m.keymap)),
 	)
 }
