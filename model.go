@@ -22,18 +22,30 @@ import (
 )
 
 var (
-	listStyleBlurred = lipgloss.NewStyle().
+	gistListStyleBlurred = lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("237")).Margin(0, 2, 0, 2)
+				BorderForeground(lipgloss.Color("237")).
+				Margin(0, 2, 0, 2)
 
-	listStyleFocused = lipgloss.NewStyle().
+	gistListStyleFocused = lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("215")).Margin(0, 2, 0, 2)
+				BorderForeground(lipgloss.Color("215")).
+				Margin(0, 2, 0, 2)
+
+	fileListStyleBlurred = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("237")).
+				Margin(0, 2, 0, 0)
+
+	fileListStyleFocused = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("215")).
+				Margin(0, 2, 0, 0)
 
 	// editor styles
-	focusedBorderStyle = lipgloss.NewStyle().Margin(0, 2, 0, 0)
+	focusedBorderStyle = lipgloss.NewStyle().Margin(0, 2, 0, 0).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("215"))
 
-	blurredBorderStyle = lipgloss.NewStyle().Margin(0, 2, 0, 0)
+	blurredBorderStyle = lipgloss.NewStyle().Margin(0, 2, 0, 0).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("237"))
 
 	normalModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3C3836")).Foreground(lipgloss.Color("255"))
 	insertModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("26")).Foreground(lipgloss.Color("255"))
@@ -401,7 +413,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								m.fileList = newList(files)
 								fileListWidth := m.width * 20 / 100
 								m.fileList.SetWidth(fileListWidth)
-								m.fileList.SetHeight(m.height - listStyleBlurred.GetVerticalFrameSize() - 1)
+								m.fileList.SetHeight(m.height - gistListStyleBlurred.GetVerticalFrameSize() - 1)
 								break
 							}
 						}
@@ -453,13 +465,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		gistListWidth := m.width * 20 / 100
 		fileListWidth := m.width * 20 / 100
-		editorWidth := (m.width * 60 / 100) - 10
+		editorWidth := (m.width * 60 / 100) + 4
 
 		m.gistList.SetWidth(gistListWidth)
-		m.gistList.SetHeight(m.height - listStyleBlurred.GetVerticalFrameSize() - 1)
+		m.gistList.SetHeight(m.height - gistListStyleBlurred.GetVerticalFrameSize() - 1)
 
 		m.fileList.SetWidth(fileListWidth)
-		m.fileList.SetHeight(m.height - listStyleBlurred.GetVerticalFrameSize() - 1)
+		m.fileList.SetHeight(m.height - fileListStyleBlurred.GetVerticalFrameSize() - 1)
 
 		m.editor.SetSize(editorWidth, m.height-focusedBorderStyle.GetVerticalFrameSize()-1)
 	default:
@@ -474,16 +486,16 @@ func (m model) View() string {
 	// Style components based on current pane focus
 	switch m.currentPane {
 	case PANE_GISTS:
-		gistList = listStyleFocused.Render(m.gistList.View())
-		fileList = listStyleBlurred.Render(m.fileList.View())
+		gistList = gistListStyleFocused.Render(m.gistList.View())
+		fileList = fileListStyleBlurred.Render(m.fileList.View())
 		editor = blurredBorderStyle.Render(m.editor.View())
 	case PANE_FILES:
-		gistList = listStyleBlurred.Render(m.gistList.View())
-		fileList = listStyleFocused.Render(m.fileList.View())
+		gistList = gistListStyleBlurred.Render(m.gistList.View())
+		fileList = fileListStyleFocused.Render(m.fileList.View())
 		editor = blurredBorderStyle.Render(m.editor.View())
 	case PANE_EDITOR:
-		gistList = listStyleBlurred.Render(m.gistList.View())
-		fileList = listStyleBlurred.Render(m.fileList.View())
+		gistList = gistListStyleBlurred.Render(m.gistList.View())
+		fileList = fileListStyleBlurred.Render(m.fileList.View())
 		editor = focusedBorderStyle.Render(m.editor.View())
 	}
 
