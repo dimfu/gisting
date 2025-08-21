@@ -32,7 +32,7 @@ func (d gistsDelegate) Spacing() int {
 }
 
 func (d gistsDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
-	return d.DefaultDelegate.Update(msg, m)
+	return nil
 }
 
 // Render renders a folder list item.

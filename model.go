@@ -11,44 +11,12 @@ import (
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 
 	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v74/github"
 	"github.com/ostafen/clover"
 	"golang.org/x/oauth2"
-)
-
-var (
-	// editor styles
-	focusedBorderStyle = lipgloss.NewStyle().Margin(0, 2, 0, 0).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("215"))
-
-	blurredBorderStyle = lipgloss.NewStyle().Margin(0, 2, 0, 0).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("237"))
-
-	normalModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3C3836")).Foreground(lipgloss.Color("255"))
-	insertModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("26")).Foreground(lipgloss.Color("255"))
-	visualModeStyle = lipgloss.NewStyle().Background(lipgloss.Color("127")).Foreground(lipgloss.Color("255"))
-	statusLineStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3c3836"))
-	lineNumberStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#3c3836")).PaddingLeft(2)
-)
-
-var (
-	bindings = []key.Binding{
-		key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
-		key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev")),
-		key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
-	}
-)
-
-var (
-	gruvboxBg     = lipgloss.Color("#282828")
-	gruvboxFg     = lipgloss.Color("#ebdbb2")
-	gruvboxGray   = lipgloss.Color("#928374")
-	gruvboxYellow = lipgloss.Color("#fabd2f")
-	gruvboxBlue   = lipgloss.Color("#83a598")
-	gruvboxGreen  = lipgloss.Color("#b8bb26")
-	gruvboxRed    = lipgloss.Color("#fb4934")
 )
 
 type pane int
@@ -86,7 +54,7 @@ type model struct {
 
 func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
 	l := list.New(items, gistsDelegate{styles: styles}, 0, 0)
-	l.Title = "My Gists"
+	l.Title = "Gists                               "
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
 	l.Styles.Title = styles.Title
@@ -138,14 +106,8 @@ func newModel(githubclient *github.Client, closech chan os.Signal) model {
 	textEditor := editor.New(0, 0)
 	textEditor.ShowMessages(true)
 	textEditor.SetCursorBlinkMode(true)
-	textEditor.SetLanguage("go", "gruvbox")
+	textEditor.SetLanguage("go", "nord")
 	textEditor.HideStatusLine(true)
-	textEditor.WithTheme(editor.Theme{
-		NormalModeStyle: normalModeStyle,
-		InsertModeStyle: insertModeStyle,
-		VisualModeStyle: visualModeStyle,
-		LineNumberStyle: lineNumberStyle,
-	})
 
 	m.editor = textEditor
 
@@ -256,8 +218,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.closeCh <- syscall.SIGTERM
 				return m, tea.Quit
 			}
-		case "ctrl+z":
-			return m, tea.Suspend
 		case "ctrl+h":
 			m.previous()
 			return m, tea.Batch(m.updateActivePane(msg)...)
@@ -280,7 +240,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if gist.id == selectedGist.id {
 								items := make([]list.Item, len(files))
 								for i, item := range files {
-									logs = append(logs, item)
 									items[i] = item
 								}
 								return m, m.fileList.SetItems(items)
@@ -321,12 +280,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case PANE_EDITOR:
-			m.GistsStyle = DefaultStyles().Gists.Blurred
-			m.EditorStyle = DefaultStyles().Editor.Focused
-			m.FilesStyle = DefaultStyles().Files.Blurred
-
 			m.editor.Focus()
-
 			editorModel, cmd := m.editor.Update(msg)
 			cmds = append(cmds, cmd)
 			m.editor = editorModel.(editor.Model)
@@ -335,21 +289,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height - 4
+		m.height = msg.Height - 1
 
-		gistListWidth := m.width * 20 / 100
-		fileListWidth := m.width * 20 / 100
-		editorWidth := (m.width * 60 / 100)
+		gv, gh := m.GistsStyle.Base.GetFrameSize()
+		m.gistList.SetSize(m.width-gv, m.height-gv)
 
-		logs = append(logs, m.width)
+		fv, fh := m.FilesStyle.Base.GetFrameSize()
+		m.fileList.SetSize(m.width-fh, m.height-fv)
 
-		m.gistList.SetWidth(gistListWidth)
-		m.gistList.SetHeight(m.height)
-
-		m.fileList.SetWidth(fileListWidth)
-		m.fileList.SetHeight(m.height)
-
-		m.editor.SetSize(editorWidth, m.height-focusedBorderStyle.GetVerticalFrameSize()-1)
+		m.editor.SetSize(m.width-fv-gv-85, m.height-gh-fh)
 	default:
 	}
 
@@ -377,29 +325,25 @@ func (m *model) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Blurred
 		m.EditorStyle = DefaultStyles().Editor.Focused
-		m.editor.Focus()
-		editorModel, cmd := m.editor.Update(msg)
-		cmds = append(cmds, cmd)
-		m.editor = editorModel.(editor.Model)
 	}
-
-	m.gistList.Styles.TitleBar = m.GistsStyle.TitleBar
-	m.gistList.Styles.Title = m.GistsStyle.Title
 
 	m.fileList.Styles.TitleBar = m.FilesStyle.TitleBar
 	m.fileList.Styles.Title = m.FilesStyle.Title
+
+	m.gistList.Styles.TitleBar = m.GistsStyle.TitleBar
+	m.gistList.Styles.Title = m.GistsStyle.Title
 
 	return cmds
 }
 
 func (m model) View() string {
 	return lipgloss.JoinVertical(
-		lipgloss.Left,
+		lipgloss.Top,
 		lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			m.GistsStyle.Base.Render(m.gistList.View()),
 			m.FilesStyle.Base.Render(m.fileList.View()),
-			blurredBorderStyle.Render(m.editor.View()),
+			m.editor.View(),
 		),
 		lipgloss.NewStyle().MarginLeft(2).Render(m.help.View(m.keymap)),
 	)
