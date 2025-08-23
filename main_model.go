@@ -176,8 +176,29 @@ func (m *mainModel) getGists() error {
 	return nil
 }
 
+type updateEditorContent string
+
+func (m *mainModel) loadSelectedFile() tea.Cmd {
+	li := m.fileList.SelectedItem()
+	if li == nil {
+		return nil // no command
+	}
+
+	f, _ := li.(file)
+	content, err := f.content()
+	if err != nil {
+		return func() tea.Msg {
+			return errMsg{err: err}
+		}
+	}
+
+	return func() tea.Msg {
+		return updateEditorContent(content)
+	}
+}
+
 func (m mainModel) Init() tea.Cmd {
-	return m.editor.CursorBlink()
+	return tea.Batch(m.loadSelectedFile(), m.editor.CursorBlink())
 }
 
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -190,6 +211,13 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editor.Blur()
 			m.previous()
 		}
+
+	case updateEditorContent:
+		m.editor.SetContent(string(msg))
+		editorModel, cmd := m.editor.Update(msg)
+		cmds = append(cmds, cmd)
+		m.editor = editorModel.(editor.Model)
+		cmds = append(cmds, m.updateActivePane(msg)...)
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -214,23 +242,29 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.gistList, cmd = m.gistList.Update(msg)
 				cmds = append(cmds, cmd)
-				if selected := m.gistList.SelectedItem(); selected != nil {
-					if selectedGist, ok := selected.(gist); ok {
-						for gist, files := range m.gists {
-							if gist.id == selectedGist.id {
-								items := make([]list.Item, len(files))
-								for i, item := range files {
-									items[i] = item
-								}
-								return m, m.fileList.SetItems(items)
+				if selectedGist, ok := m.gistList.SelectedItem().(gist); ok {
+					for gist, files := range m.gists {
+						if gist.id == selectedGist.id {
+							items := make([]list.Item, len(files))
+							for i, item := range files {
+								items[i] = item
 							}
+
+							cmd = m.fileList.SetItems(items)
+							m.fileList.Select(0)
+							cmds = append(cmds, cmd)
+
+							// update editor content on gist changes by using the first selected item in list
+							cmd = m.loadSelectedFile()
+							cmds = append(cmds, cmd)
+
+							break
 						}
 					}
 				}
 			case "enter":
 				m.next()
 			default:
-				cmds = append(cmds, m.updateActivePane(msg)...)
 			}
 
 		case PANE_FILES:
@@ -238,25 +272,21 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.fileList, cmd = m.fileList.Update(msg)
 				cmds = append(cmds, cmd)
+
+				// update editor content on file changes
+				cmd = m.loadSelectedFile()
+				cmds = append(cmds, cmd)
+
+				cmds = append(cmds, m.updateActivePane(msg)...)
 			case "enter", "ctrl+l":
-				if selected := m.fileList.SelectedItem(); selected != nil {
-					if f, ok := selected.(file); ok {
-						content, err := f.content()
-						if err == nil {
-							m.editor.SetContent(content)
-							m.next()
-							// hack to rerender the whole app and show the editor's content
-							return m, func() tea.Msg {
-								return tea.KeyMsg{
-									Type:  tea.KeyRunes,
-									Runes: []rune{},
-								}
-							}
-						}
+				m.next()
+				return m, func() tea.Msg {
+					return tea.KeyMsg{
+						Type:  tea.KeyRunes,
+						Runes: []rune{},
 					}
 				}
 			default:
-				cmds = append(cmds, m.updateActivePane(msg)...)
 			}
 
 		case PANE_EDITOR:

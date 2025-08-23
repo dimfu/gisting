@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,6 +43,9 @@ func init() {
 }
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	defer storage.db.Close()
 
 	shutdown := make(chan os.Signal, 1)

@@ -80,7 +80,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case authSuccessMsg:
-		m.mainScreen = newMainModel(m.shutdown, msg.client)
+		model := newMainModel(m.shutdown, msg.client)
+		m.mainScreen = model
+		cmds = append(cmds, model.Init())
 		m.screenState = mainScreen
 
 		// CRITICAL: Send the current viewport size to the new main screen immediately

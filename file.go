@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -51,7 +50,6 @@ func (f file) content() (string, error) {
 			return "", err
 		}
 		content = string(contentBytes)
-		logs = append(logs, fmt.Sprintf("stale %s", content))
 
 		if existing == nil {
 			existing = clover.NewDocument()
