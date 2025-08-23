@@ -15,7 +15,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v74/github"
-	"github.com/ostafen/clover"
+	"github.com/ostafen/clover/v2/document"
+	"github.com/ostafen/clover/v2/query"
 	"golang.org/x/oauth2"
 )
 
@@ -118,7 +119,7 @@ func (m *mainModel) getGists() error {
 		return err
 	}
 
-	docs := []*clover.Document{}
+	docs := []*document.Document{}
 	for _, g := range gists {
 		items := []list.Item{}
 		for _, f := range g.GetFiles() {
@@ -130,7 +131,9 @@ func (m *mainModel) getGists() error {
 				stale:     false,
 			}
 
-			existing, err := storage.db.Query(string(collectionGists)).Where(clover.Field("rawUrl").Eq(i.rawUrl)).FindFirst()
+			existing, err := storage.db.FindFirst(
+				query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(i.rawUrl)),
+			)
 			if err != nil {
 				continue
 			}
@@ -148,7 +151,7 @@ func (m *mainModel) getGists() error {
 					return fmt.Errorf("failed to update gist: %w", err)
 				}
 			} else {
-				doc := clover.NewDocument()
+				doc := document.NewDocument()
 				doc.SetAll(map[string]any{
 					"title":     i.title,
 					"desc":      i.desc,

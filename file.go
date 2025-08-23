@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ostafen/clover"
+	"github.com/ostafen/clover/v2/document"
+	"github.com/ostafen/clover/v2/query"
 )
 
 type file struct {
@@ -26,10 +27,9 @@ func (f file) FilterValue() string { return f.title }
 
 func (f file) content() (string, error) {
 	var content string
-
-	existing, err := storage.db.Query(string(collectionGistContent)).
-		Where(clover.Field("rawUrl").Eq(f.rawUrl)).
-		FindFirst()
+	existing, err := storage.db.FindFirst(
+		query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(f.rawUrl)),
+	)
 	if err != nil {
 		logs = append(logs, err.Error())
 		return "", err
@@ -52,7 +52,7 @@ func (f file) content() (string, error) {
 		content = string(contentBytes)
 
 		if existing == nil {
-			existing = clover.NewDocument()
+			existing = document.NewDocument()
 			existing.Set("rawUrl", f.rawUrl)
 		}
 

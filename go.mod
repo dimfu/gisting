@@ -11,6 +11,7 @@ require (
 	github.com/google/go-github/v74 v74.0.0
 	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13
 	github.com/ostafen/clover v1.2.0
+	github.com/ostafen/clover/v2 v2.0.0-alpha.3
 	golang.org/x/oauth2 v0.30.0
 )
 
@@ -37,6 +38,7 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/google/orderedcode v0.0.1 // indirect
 	github.com/ionut-t/goeditor/core v0.1.8 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -53,7 +55,10 @@ require (
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	go.etcd.io/bbolt v1.3.6 // indirect
 	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect

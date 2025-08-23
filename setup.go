@@ -16,24 +16,10 @@ func setup(token *oauth2.Token) error {
 		return err
 	}
 
-	if err := storage.init(cfgPath); err != nil {
+	if err := storage.init(cfgPath, *drop); err != nil {
 		return err
 	}
 
-	// handle drop database on binary start up
-	if *drop {
-		for _, c := range collections {
-			if err := storage.db.DropCollection(string(c)); err != nil {
-				panic(err)
-			}
-		}
-		// close the previous database to avoid using the previous database lock
-		storage.db.Close()
-		// and re init the database again
-		if err := storage.init(cfgPath); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
