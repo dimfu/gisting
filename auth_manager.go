@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"time"
 
 	"golang.org/x/oauth2"
 
+	tea "github.com/charmbracelet/bubbletea"
 	gg "github.com/google/go-github/v74/github"
 	"golang.org/x/oauth2/github"
 )
@@ -59,28 +60,39 @@ func (a *authManager) exchangeToken(ctx context.Context, code string) error {
 	return nil
 }
 
-func (a *authManager) authenticate(ctx context.Context, shutdown <-chan os.Signal) (*gg.Client, error) {
-	if a.token != nil && a.token.AccessToken != "" {
-		client := gg.NewClient(a.config.Client(ctx, a.token))
-		user, _, err := client.Users.Get(ctx, "")
-		if user == nil {
-			return nil, fmt.Errorf("Error while retrieving Github user data: %v", err)
-		}
-		return client, err
-	}
+type authCodeMsg string
 
-	// prompt the user to authenticate their github account if they're not authenticated yet
-	authUrl := a.config.AuthCodeURL("state", oauth2.AccessTypeOffline)
-	fmt.Printf("Visit the URL for the auth dialog: %v\n", authUrl)
-	for {
+func (a *authManager) authenticate() tea.Cmd {
+	return func() tea.Msg {
+		httpClient := &http.Client{Timeout: 10 * time.Second}
+		ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
+		if a.token != nil && a.token.AccessToken != "" {
+			client := gg.NewClient(a.config.Client(ctx, a.token))
+			user, _, err := client.Users.Get(ctx, "")
+			if user == nil {
+				return errMsg{err: err}
+			}
+			return authSuccessMsg{client}
+		}
+		return authCodeMsg(a.config.AuthCodeURL("state", oauth2.AccessTypeOffline))
+	}
+}
+
+func (a *authManager) waitForCallback() tea.Cmd {
+	return func() tea.Msg {
 		select {
 		case result := <-a.callbackChan:
 			if result.error != nil {
-				return nil, result.error
+				return errMsg{err: result.error}
 			}
-			return gg.NewClient(auth.config.Client(ctx, auth.token)), nil
-		case <-shutdown:
-			return nil, errors.New("Cancelled by the user")
+
+			httpClient := &http.Client{Timeout: 10 * time.Second}
+			ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
+			client := gg.NewClient(a.config.Client(ctx, a.token))
+
+			return authSuccessMsg{client: client}
+		case <-time.After(5 * time.Minute): // Timeout after 5 minutes
+			return errMsg{err: errors.New("Authentication timeout - no callback received")}
 		}
 	}
 }

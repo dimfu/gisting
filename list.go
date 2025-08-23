@@ -35,6 +35,16 @@ func (d gistsDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 	return nil
 }
 
+func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
+	l := list.New(items, gistsDelegate{styles: styles}, 0, 0)
+	l.Title = "Gists                               "
+	l.SetShowStatusBar(false)
+	l.SetShowHelp(false)
+	l.Styles.Title = styles.Title
+	l.Styles.TitleBar = styles.TitleBar
+	return l
+}
+
 // Render renders a folder list item.
 func (d gistsDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	f, ok := item.(gist)
@@ -87,4 +97,14 @@ func (d filesDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	}
 
 	fmt.Fprintln(w, "  "+title)
+}
+
+func newFileList(items []list.Item, styles FilesBaseStyle) list.Model {
+	l := list.New(items, filesDelegate{styles: styles}, 0, 0)
+	l.Title = "Files"
+	l.SetShowStatusBar(false)
+	l.SetShowHelp(false)
+	l.Styles.Title = styles.Title
+	l.Styles.TitleBar = styles.TitleBar
+	return l
 }

@@ -1,350 +1,120 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"syscall"
 	"time"
 
-	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
-
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/google/go-github/v74/github"
-	"github.com/ostafen/clover"
-	"golang.org/x/oauth2"
 )
 
-type pane int
-
-const MAX_PANE = 3
+type screen int
 
 const (
-	PANE_GISTS pane = iota
-	PANE_FILES
-	PANE_EDITOR
+	authScreen screen = iota
+	mainScreen
 )
 
 type model struct {
-	gists map[gist][]list.Item
+	shutdown chan os.Signal
 
-	keymap  Keymap
-	closeCh chan os.Signal
-	github  *github.Client
+	screenState screen
+
+	authScreen authModel
+	mainScreen mainModel
 
 	width  int
 	height int
-
-	// tui area
-	gistList list.Model
-	fileList list.Model
-	editor   editor.Model
-	help     help.Model
-
-	currentPane pane
-
-	FilesStyle  FilesBaseStyle
-	GistsStyle  GistsBaseStyle
-	EditorStyle EditorBaseStyle
 }
 
-func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
-	l := list.New(items, gistsDelegate{styles: styles}, 0, 0)
-	l.Title = "Gists                               "
-	l.SetShowStatusBar(false)
-	l.SetShowHelp(false)
-	l.Styles.Title = styles.Title
-	l.Styles.TitleBar = styles.TitleBar
-	return l
-}
-
-func newFileList(items []list.Item, styles FilesBaseStyle) list.Model {
-	l := list.New(items, filesDelegate{styles: styles}, 0, 0)
-	l.Title = "Files"
-	l.SetShowStatusBar(false)
-	l.SetShowHelp(false)
-	l.Styles.Title = styles.Title
-	l.Styles.TitleBar = styles.TitleBar
-	return l
-}
-
-func newModel(githubclient *github.Client, closech chan os.Signal) model {
-	defaultStyle := DefaultStyles()
-	m := model{
-		gists:       map[gist][]list.Item{},
-		github:      githubclient,
-		closeCh:     closech,
-		keymap:      DefaultKeymap,
-		help:        help.New(),
-		currentPane: PANE_GISTS,
-		GistsStyle:  defaultStyle.Gists.Focused,
-		FilesStyle:  defaultStyle.Files.Blurred,
-	}
-
-	if err := m.getGists(); err != nil {
-		panic("Could not get gists on initial start up")
-	}
-
-	// populate gist list
-	var firstgist *gist
-	gistFiles := []list.Item{}
-	for g := range m.gists {
-		if firstgist == nil {
-			firstgist = &g
-		}
-		gistFiles = append(gistFiles, gist{id: g.id, name: g.name})
-	}
-
-	m.gistList = newGistList(gistFiles, m.GistsStyle)
-	m.fileList = newFileList(m.gists[*firstgist], m.FilesStyle)
-
-	// dont care about the width and height because we set it inside the tea.WindowSizeMsg
-	textEditor := editor.New(0, 0)
-	textEditor.ShowMessages(true)
-	textEditor.SetCursorBlinkMode(true)
-	textEditor.SetLanguage("go", "nord")
-	textEditor.HideStatusLine(true)
-
-	m.editor = textEditor
-
-	return m
-}
-
-func (m *model) next() {
-	m.currentPane = (m.currentPane + 1) % MAX_PANE
-}
-
-func (m *model) previous() {
-	m.currentPane--
-	if m.currentPane < 0 {
-		m.currentPane = MAX_PANE - 1
-	}
-}
-
-func (m *model) getGists() error {
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
-	gists, _, err := m.github.Gists.List(ctx, "", &github.GistListOptions{
-		ListOptions: github.ListOptions{
-			// TODO: should we handle per page pagination or not?
-			PerPage: 100,
+func initialModel(shutdown chan os.Signal) model {
+	mux := http.NewServeMux()
+	return model{
+		shutdown:    shutdown,
+		screenState: authScreen,
+		authScreen: authModel{
+			loadingSpinner: spinner.New(),
+			state:          auth_loading,
+			shutdown:       shutdown,
+			mux:            mux,
+			server: &http.Server{
+				Addr:         ":8080",
+				Handler:      mux,
+				ReadTimeout:  10 * time.Second,
+				WriteTimeout: 10 * time.Second,
+			},
 		},
-	})
-	if err != nil {
-		return err
 	}
-
-	docs := []*clover.Document{}
-	for _, g := range gists {
-		items := []list.Item{}
-		for _, f := range g.GetFiles() {
-			i := file{
-				title:     f.GetFilename(),
-				desc:      g.GetDescription(),
-				rawUrl:    f.GetRawURL(),
-				updatedAt: g.GetUpdatedAt().String(),
-				stale:     false,
-			}
-
-			existing, err := storage.db.Query(string(collectionGists)).Where(clover.Field("rawUrl").Eq(i.rawUrl)).FindFirst()
-			if err != nil {
-				continue
-			}
-
-			if existing != nil {
-				// if existing data is unchanged (based on the date time) skip db operations since there is nothing to change
-				existingUA, _ := existing.Get("updatedAt").(string)
-				if existingUA >= i.updatedAt {
-					items = append(items, i)
-					continue
-				}
-				i.stale = true
-				existing.Set("updatedAt", i.updatedAt)
-				if err := storage.db.Save(string(collectionGists), existing); err != nil {
-					return fmt.Errorf("failed to update gist: %w", err)
-				}
-			} else {
-				doc := clover.NewDocument()
-				doc.SetAll(map[string]any{
-					"title":     i.title,
-					"desc":      i.desc,
-					"rawUrl":    i.rawUrl,
-					"updatedAt": i.updatedAt,
-				})
-				docs = append(docs, doc)
-			}
-			items = append(items, i)
-		}
-		g := gist{
-			name: g.GetDescription(),
-			id:   g.GetID(),
-		}
-		m.gists[g] = items
-	}
-
-	// insert new gist records into the collectiion
-	if len(docs) > 0 {
-		if err := storage.db.Insert(string(collectionGists), docs...); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (m model) Init() tea.Cmd {
-	return m.editor.CursorBlink()
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	var cmd tea.Cmd
-
-	switch msg := msg.(type) {
-	case editor.SaveMsg:
-		if m.currentPane == PANE_EDITOR {
-			m.editor.Blur()
-			m.previous()
-		}
-
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.currentPane != PANE_EDITOR {
-				m.closeCh <- syscall.SIGTERM
-				return m, tea.Quit
-			}
-		case "ctrl+h":
-			m.previous()
-			return m, tea.Batch(m.updateActivePane(msg)...)
-		case "ctrl+l":
-			if m.currentPane != PANE_FILES {
-				m.next()
-				return m, tea.Batch(m.updateActivePane(msg)...)
-			}
-		}
-
-		switch m.currentPane {
-		case PANE_GISTS:
-			switch msg.String() {
-			case "up", "down", "j", "k":
-				m.gistList, cmd = m.gistList.Update(msg)
-				cmds = append(cmds, cmd)
-				if selected := m.gistList.SelectedItem(); selected != nil {
-					if selectedGist, ok := selected.(gist); ok {
-						for gist, files := range m.gists {
-							if gist.id == selectedGist.id {
-								items := make([]list.Item, len(files))
-								for i, item := range files {
-									items[i] = item
-								}
-								return m, m.fileList.SetItems(items)
-							}
-						}
-					}
-				}
-			case "enter":
-				m.next()
-			default:
-				cmds = append(cmds, m.updateActivePane(msg)...)
-			}
-
-		case PANE_FILES:
-			switch msg.String() {
-			case "up", "down", "j", "k":
-				m.fileList, cmd = m.fileList.Update(msg)
-				cmds = append(cmds, cmd)
-			case "enter", "ctrl+l":
-				if selected := m.fileList.SelectedItem(); selected != nil {
-					if f, ok := selected.(file); ok {
-						content, err := f.content()
-						if err == nil {
-							m.editor.SetContent(content)
-							m.next()
-							// hack to rerender the whole app and show the editor's content
-							return m, func() tea.Msg {
-								return tea.KeyMsg{
-									Type:  tea.KeyRunes,
-									Runes: []rune{},
-								}
-							}
-						}
-					}
-				}
-			default:
-				cmds = append(cmds, m.updateActivePane(msg)...)
-			}
-
-		case PANE_EDITOR:
-			m.editor.Focus()
-			editorModel, cmd := m.editor.Update(msg)
-			cmds = append(cmds, cmd)
-			m.editor = editorModel.(editor.Model)
-			cmds = append(cmds, m.updateActivePane(msg)...)
-		}
-
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height - 1
-
-		gv, gh := m.GistsStyle.Base.GetFrameSize()
-		m.gistList.SetSize(m.width-gv, m.height-gv)
-
-		fv, fh := m.FilesStyle.Base.GetFrameSize()
-		m.fileList.SetSize(m.width-fh, m.height-fv)
-
-		m.editor.SetSize(m.width-fv-gv-85, m.height-gh-fh)
-	default:
-	}
-
-	return m, tea.Batch(cmds...)
-}
-
-func (m *model) updateActivePane(msg tea.Msg) []tea.Cmd {
-	var cmds []tea.Cmd
-	var cmd tea.Cmd
-
-	switch m.currentPane {
-	case PANE_GISTS:
-		m.GistsStyle = DefaultStyles().Gists.Focused
-		m.FilesStyle = DefaultStyles().Files.Blurred
-		m.EditorStyle = DefaultStyles().Editor.Blurred
-		m.gistList, cmd = m.gistList.Update(msg)
-		cmds = append(cmds, cmd)
-	case PANE_FILES:
-		m.GistsStyle = DefaultStyles().Gists.Blurred
-		m.FilesStyle = DefaultStyles().Files.Focused
-		m.EditorStyle = DefaultStyles().Editor.Blurred
-		m.fileList, cmd = m.fileList.Update(msg)
-		cmds = append(cmds, cmd)
-	case PANE_EDITOR:
-		m.GistsStyle = DefaultStyles().Gists.Blurred
-		m.FilesStyle = DefaultStyles().Files.Blurred
-		m.EditorStyle = DefaultStyles().Editor.Focused
-	}
-
-	m.fileList.Styles.TitleBar = m.FilesStyle.TitleBar
-	m.fileList.Styles.Title = m.FilesStyle.Title
-
-	m.gistList.Styles.TitleBar = m.GistsStyle.TitleBar
-	m.gistList.Styles.Title = m.GistsStyle.Title
-
-	return cmds
+	return m.authScreen.Init()
 }
 
 func (m model) View() string {
-	return lipgloss.JoinVertical(
-		lipgloss.Top,
-		lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			m.GistsStyle.Base.Render(m.gistList.View()),
-			m.FilesStyle.Base.Render(m.fileList.View()),
-			m.editor.View(),
-		),
-		lipgloss.NewStyle().MarginLeft(2).Render(m.help.View(m.keymap)),
-	)
+	switch m.screenState {
+	case authScreen:
+		return m.authScreen.View()
+	case mainScreen:
+		return m.mainScreen.View()
+	}
+	return "no view defined for this state"
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		// Store the viewport size in the main model
+		m.width = msg.Width
+		m.height = msg.Height
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.shutdown <- syscall.SIGTERM
+			return m, tea.Quit
+		}
+
+	case authSuccessMsg:
+		m.mainScreen = newMainModel(m.shutdown, msg.client)
+		m.screenState = mainScreen
+
+		// CRITICAL: Send the current viewport size to the new main screen immediately
+		if m.width > 0 && m.height > 0 {
+			newMainScreen, newCmd := m.mainScreen.Update(tea.WindowSizeMsg{
+				Width:  m.width,
+				Height: m.height,
+			})
+			m.mainScreen = newMainScreen.(mainModel)
+			cmds = append(cmds, newCmd)
+		}
+		return m, tea.Batch(cmds...)
+	}
+
+	switch m.screenState {
+	case authScreen:
+		newAuthScreen, newCmd := m.authScreen.Update(msg)
+		authModel, ok := newAuthScreen.(authModel)
+		if !ok {
+			panic("could not perform authModel assertion")
+		}
+		m.authScreen = authModel
+		cmd = newCmd
+
+	case mainScreen:
+		newMainScreen, newCmd := m.mainScreen.Update(msg)
+		mainModel, ok := newMainScreen.(mainModel)
+		if !ok {
+			panic("could not perform authModel assertion")
+		}
+		m.mainScreen = mainModel
+		cmd = newCmd
+	}
+
+	cmds = append(cmds, cmd)
+	return m, tea.Batch(cmds...)
 }
