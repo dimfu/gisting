@@ -51,9 +51,11 @@ type mainModel struct {
 	FilesStyle  FilesBaseStyle
 	GistsStyle  GistsBaseStyle
 	EditorStyle EditorBaseStyle
+
+	dialogState *dialogState
 }
 
-func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainModel {
+func newMainModel(shutdown chan os.Signal, githubClient *github.Client, dialogState *dialogState) mainModel {
 	defaultStyle := DefaultStyles()
 	m := mainModel{
 		gists:        map[gist][]list.Item{},
@@ -64,6 +66,7 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 		currentPane:  PANE_GISTS,
 		GistsStyle:   defaultStyle.Gists.Focused,
 		FilesStyle:   defaultStyle.Files.Blurred,
+		dialogState:  dialogState,
 	}
 
 	if err := m.getGists(); err != nil {
@@ -302,15 +305,15 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height - 1
+		m.height = msg.Height - 2
 
 		gv, gh := m.GistsStyle.Base.GetFrameSize()
-		m.gistList.SetSize(m.width-gv, m.height-gv)
+		m.gistList.SetSize(m.width-gv, m.height)
 
 		fv, fh := m.FilesStyle.Base.GetFrameSize()
 		m.fileList.SetSize(m.width-fh, m.height-fv)
 
-		m.editor.SetSize(m.width-fv-gv-85, m.height-gh-fh)
+		m.editor.SetSize(m.width-fv-gv-70, m.height-gh-fh)
 	default:
 	}
 
@@ -328,12 +331,14 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.EditorStyle = DefaultStyles().Editor.Blurred
 		m.gistList, cmd = m.gistList.Update(msg)
 		cmds = append(cmds, cmd)
+		*m.dialogState = dialog_create_gist
 	case PANE_FILES:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Focused
 		m.EditorStyle = DefaultStyles().Editor.Blurred
 		m.fileList, cmd = m.fileList.Update(msg)
 		cmds = append(cmds, cmd)
+		*m.dialogState = dialog_create_file
 	case PANE_EDITOR:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Blurred
@@ -354,8 +359,8 @@ func (m mainModel) View() string {
 		lipgloss.Top,
 		lipgloss.JoinHorizontal(
 			lipgloss.Top,
-			m.GistsStyle.Base.Render(m.gistList.View()),
-			m.FilesStyle.Base.Render(m.fileList.View()),
+			m.gistList.View(),
+			m.fileList.View(),
 			m.editor.View(),
 		),
 		lipgloss.NewStyle().MarginLeft(2).Render(m.help.View(m.keymap)),

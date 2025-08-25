@@ -50,8 +50,6 @@ type Styles struct {
 	Editor EditorStyle
 }
 
-var marginStyle = lipgloss.NewStyle().Margin(1, 0, 0, 1)
-
 func DefaultStyles() Styles {
 	white := lipgloss.Color("#ffffff")
 	gray := lipgloss.Color("241")
@@ -67,32 +65,32 @@ func DefaultStyles() Styles {
 	return Styles{
 		Gists: GistsStyle{
 			Focused: GistsBaseStyle{
-				Base:       lipgloss.NewStyle().Width(40),
+				Base:       lipgloss.NewStyle().Width(40).Height(1),
 				Title:      lipgloss.NewStyle().Padding(0, 1).Foreground(white),
-				TitleBar:   lipgloss.NewStyle().Background(blue).Width(40).Margin(0, 1, 1, 1).Padding(0, 1),
+				TitleBar:   lipgloss.NewStyle().Background(blue).Width(40).Margin(0, 1, 1, 1).Padding(0, 1).Height(1),
 				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
 				Unselected: lipgloss.NewStyle().Foreground(gray),
 			},
 			Blurred: GistsBaseStyle{
-				Base:       lipgloss.NewStyle().Width(40),
+				Base:       lipgloss.NewStyle().Width(40).Height(1),
 				Title:      lipgloss.NewStyle().Padding(0, 1).Foreground(gray),
-				TitleBar:   lipgloss.NewStyle().Background(black).Width(40).Margin(0, 1, 1, 1).Padding(0, 1),
+				TitleBar:   lipgloss.NewStyle().Background(black).Width(40).Margin(0, 1, 1, 1).Padding(0, 1).Height(1),
 				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
 				Unselected: lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
 			},
 		},
 		Files: FilesStyle{
 			Focused: FilesBaseStyle{
-				Base:               lipgloss.NewStyle().Width(40),
-				TitleBar:           lipgloss.NewStyle().Background(blue).Width(40).Margin(0, 1, 1, 1).Padding(0, 1).Foreground(white),
+				Base:               lipgloss.NewStyle().Width(25).Height(1),
+				TitleBar:           lipgloss.NewStyle().Background(blue).Width(25).Margin(0, 1, 1, 1).Padding(0, 1).Foreground(white),
 				SelectedSubtitle:   lipgloss.NewStyle().Foreground(blue),
 				UnselectedSubtitle: lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
 				SelectedTitle:      lipgloss.NewStyle().Foreground(brightBlue),
 				UnselectedTitle:    lipgloss.NewStyle().Foreground(gray),
 			},
 			Blurred: FilesBaseStyle{
-				Base:               lipgloss.NewStyle().Width(40),
-				TitleBar:           lipgloss.NewStyle().Background(black).Width(40).Margin(0, 1, 1, 1).Padding(0, 1).Foreground(gray),
+				Base:               lipgloss.NewStyle().Width(25).Height(1),
+				TitleBar:           lipgloss.NewStyle().Background(black).Width(25).Margin(0, 1, 1, 1).Padding(0, 1).Foreground(gray),
 				SelectedSubtitle:   lipgloss.NewStyle().Foreground(blue),
 				UnselectedSubtitle: lipgloss.NewStyle().Foreground(black),
 				SelectedTitle:      lipgloss.NewStyle().Foreground(brightBlue),
