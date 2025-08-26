@@ -9,6 +9,9 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/google/go-github/v74/github"
+	"github.com/google/uuid"
+	"github.com/ostafen/clover/v2/document"
 )
 
 type screen int
@@ -28,11 +31,12 @@ const (
 )
 
 type model struct {
+	client   *github.Client
 	shutdown chan os.Signal
 
 	screenState screen
 
-	dialogState dialogState
+	dialogState dialogStateChangeMsg
 
 	authScreen   authModel
 	mainScreen   mainModel
@@ -45,6 +49,7 @@ type model struct {
 func initialModel(shutdown chan os.Signal) model {
 	mux := http.NewServeMux()
 	return model{
+		client:      nil,
 		shutdown:    shutdown,
 		screenState: authScreen,
 		authScreen: authModel{
@@ -59,8 +64,62 @@ func initialModel(shutdown chan os.Signal) model {
 				WriteTimeout: 10 * time.Second,
 			},
 		},
-		dialogScreen: newDialogModel(0, 0, dialog_create_gist),
-		dialogState:  dialog_create_gist,
+		dialogScreen: newDialogModel(0, 0, dialogStateChangeMsg{state: dialog_create_gist, gistName: ""}, nil),
+		dialogState:  dialogStateChangeMsg{state: dialog_create_gist, gistName: ""},
+	}
+}
+
+type rerenderMsg bool
+
+// create gist and store it in drafted gist collection
+func (m *model) createGist(name string) []tea.Cmd {
+	var cmds []tea.Cmd
+
+	doc := document.NewDocument()
+	id := uuid.New().String()
+	doc.SetAll(map[string]any{
+		"id":          id,
+		"description": name,
+		"status":      gist_status_drafted,
+	})
+	if err := storage.db.Insert(string(collectionDraftedGists), doc); err != nil {
+		return cmds
+	}
+
+	// get the current items from gistList
+	items := m.mainScreen.gistList.Items()
+
+	// TODO: should this be re ordered alphabetically?
+
+	items = append(items, gist{
+		id:     id,
+		name:   name,
+		status: gist_status_drafted,
+	})
+
+	// update gistList with the new slice
+	cmd := m.mainScreen.gistList.SetItems(items)
+
+	// trigger rerender
+	rerender := func() tea.Msg {
+		return rerenderMsg(true)
+	}
+	cmds = append(cmds, cmd, rerender)
+
+	return cmds
+}
+
+// create gist and store it in drafted file collection
+func (m *model) createFile() tea.Cmd {
+	return func() tea.Msg {
+		return nil
+	}
+}
+
+// since github dont allow us to upload file one by one, upload all drafted files for a gist at once
+func (m *model) uploadGist() tea.Cmd {
+	return func() tea.Msg {
+		return nil
 	}
 }
 
@@ -97,7 +156,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "a":
 			// handle "a" keystroke if dialog already open
-			if m.dialogState == dialog_opened {
+			if m.dialogState.state == dialog_opened {
 				var updated tea.Model
 				updated, cmd = m.dialogScreen.form.Update(msg)
 				m.dialogScreen.form = updated.(*huh.Form)
@@ -105,8 +164,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			} else {
 				// recreate with current viewport dimension to prevent jankiness
-				m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState)
-				m.dialogState = dialog_opened
+				m.dialogScreen = newDialogModel(m.width, m.height, dialogStateChangeMsg{
+					state:    m.dialogState.state,
+					gistName: m.dialogState.gistName,
+				}, m.client)
+				m.dialogState = dialogStateChangeMsg{state: dialog_opened, gistName: ""}
 				cmds = append(cmds, m.dialogScreen.Init())
 				m.screenState = dialogScreen
 				return m, tea.Batch(cmds...)
@@ -118,6 +180,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case authSuccessMsg:
+		m.client = msg.client
 		model := newMainModel(m.shutdown, msg.client)
 		m.mainScreen = model
 		cmds = append(cmds, model.Init())
@@ -135,13 +198,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case dialogStateChangeMsg:
-		m.dialogState = dialogState(msg)
+		m.dialogState = msg
 
-	case dialogMsg:
+	case dialogSubmitMsg:
 		logs = append(logs, msg)
 		// revert back to the dialog state that we are at when triggering the dialog
-		m.dialogState = msg.state
+		m.dialogState = dialogStateChangeMsg{state: msg.state, gistName: msg.gistName}
 		m.screenState = mainScreen
+
+		if msg.state == dialog_create_gist {
+			cmds = append(cmds, m.createGist(msg.value)...)
+		} else {
+			cmds = append(cmds, m.createFile())
+		}
+
+	case rerenderMsg:
+		newMainScreen, newCmd := m.mainScreen.Update(msg)
+		mainModel, ok := newMainScreen.(mainModel)
+		if !ok {
+			panic("could not perform authModel assertion")
+		}
+		m.mainScreen = mainModel
+		cmd = newCmd
+		return m, tea.Batch(cmds...)
 	}
 
 	switch m.screenState {

@@ -6,29 +6,33 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/go-github/v74/github"
 )
 
 type dialogModel struct {
+	client *github.Client
 	width  int
 	height int
-	state  dialogState
+	state  dialogStateChangeMsg
 	form   *huh.Form
 }
 
-type dialogMsg struct {
-	state dialogState
-	value string
+type dialogSubmitMsg struct {
+	state    dialogState
+	gistName string
+	value    string
 }
 
-func newDialogModel(width, height int, state dialogState) dialogModel {
+func newDialogModel(width, height int, s dialogStateChangeMsg, client *github.Client) dialogModel {
 	m := dialogModel{
+		client: client,
 		width:  width,
 		height: height,
-		state:  state,
+		state:  s,
 	}
 
 	var actionType string
-	if state == dialog_create_gist {
+	if s.state == dialog_create_gist {
 		actionType = "Gist"
 	} else {
 		actionType = "File"
@@ -70,9 +74,10 @@ func (m dialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.form.State == huh.StateCompleted {
 		cmds = append(cmds, func() tea.Msg {
-			return dialogMsg{
-				state: m.state,
-				value: m.form.GetString("value"),
+			return dialogSubmitMsg{
+				state:    m.state.state,
+				gistName: m.state.gistName,
+				value:    m.form.GetString("value"),
 			}
 		})
 		// prevent the form firing up again thousands of time when submitting

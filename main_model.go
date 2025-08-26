@@ -67,7 +67,7 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 	}
 
 	if err := m.getGists(); err != nil {
-		panic("Could not get gists on initial start up")
+		panic(fmt.Sprintf("Could not get gists on initial start up: %v", err))
 	}
 
 	// populate gist list
@@ -180,10 +180,29 @@ func (m *mainModel) getGists() error {
 			items = append(items, i)
 		}
 		g := gist{
-			name: g.GetDescription(),
-			id:   g.GetID(),
+			name:   g.GetDescription(),
+			id:     g.GetID(),
+			status: gist_status_published,
 		}
 		m.gists[g] = items
+	}
+
+	draftedDocs, err := storage.db.FindAll(
+		query.NewQuery(string(collectionDraftedGists)),
+	)
+
+	if err != nil {
+		return err
+	}
+
+	for _, doc := range draftedDocs {
+		statusInt := doc.Get("status").(int64)
+		g := gist{
+			id:     doc.Get("id").(string),
+			name:   doc.Get("description").(string),
+			status: gistStatus(statusInt),
+		}
+		m.gists[g] = []list.Item{}
 	}
 
 	// insert new gist records into the collectiion
@@ -226,6 +245,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case rerenderMsg:
+		logs = append(logs, "rerending inside the main model")
+		cmds = append(cmds, m.updateActivePane(msg)...)
+		return m, tea.Batch(cmds...)
 	case editor.SaveMsg:
 		if m.currentPane == PANE_EDITOR {
 			m.editor.Blur()
@@ -334,7 +357,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-type dialogStateChangeMsg dialogState
+type dialogStateChangeMsg struct {
+	state    dialogState
+	gistName string
+}
 
 func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 	var cmds []tea.Cmd
@@ -348,7 +374,10 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.gistList, cmd = m.gistList.Update(msg)
 		cmds = append(cmds, cmd)
 		cmds = append(cmds, func() tea.Msg {
-			return dialogStateChangeMsg(dialog_create_gist)
+			return dialogStateChangeMsg{
+				state:    dialog_create_gist,
+				gistName: "",
+			}
 		})
 	case PANE_FILES:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
@@ -357,7 +386,15 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.fileList, cmd = m.fileList.Update(msg)
 		cmds = append(cmds, cmd)
 		cmds = append(cmds, func() tea.Msg {
-			return dialogStateChangeMsg(dialog_create_file)
+			selectedItem := m.gistList.SelectedItem()
+			selectedGist, ok := selectedItem.(gist)
+			if !ok {
+				return nil
+			}
+			return dialogStateChangeMsg{
+				state:    dialog_create_file,
+				gistName: selectedGist.name,
+			}
 		})
 	case PANE_EDITOR:
 		m.GistsStyle = DefaultStyles().Gists.Blurred

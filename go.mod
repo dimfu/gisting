@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/huh v0.7.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/google/go-github/v74 v74.0.0
+	github.com/google/uuid v1.1.2
 	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13
 	github.com/ostafen/clover/v2 v2.0.0-alpha.3
 	golang.org/x/oauth2 v0.30.0

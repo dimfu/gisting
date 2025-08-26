@@ -25,6 +25,7 @@ type FilesBaseStyle struct {
 	UnselectedSubtitle lipgloss.Style
 	SelectedTitle      lipgloss.Style
 	UnselectedTitle    lipgloss.Style
+	NoItems            lipgloss.Style
 }
 
 type GistsBaseStyle struct {
@@ -33,6 +34,7 @@ type GistsBaseStyle struct {
 	TitleBar   lipgloss.Style
 	Selected   lipgloss.Style
 	Unselected lipgloss.Style
+	NoItems    lipgloss.Style
 }
 
 type EditorBaseStyle struct {
@@ -70,6 +72,10 @@ func DefaultStyles() Styles {
 				TitleBar:   lipgloss.NewStyle().Background(blue).Width(40).Margin(0, 0, 1, 0).Padding(0, 1).Height(1),
 				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
 				Unselected: lipgloss.NewStyle().Foreground(gray),
+				NoItems: lipgloss.NewStyle().
+					UnsetBackground().
+					Foreground(gray).
+					Padding(0, 2),
 			},
 			Blurred: GistsBaseStyle{
 				Base:       lipgloss.NewStyle().Width(40).Height(1),
@@ -77,6 +83,10 @@ func DefaultStyles() Styles {
 				TitleBar:   lipgloss.NewStyle().Background(black).Width(40).Margin(0, 0, 1, 0).Padding(0, 1).Height(1),
 				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
 				Unselected: lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
+				NoItems: lipgloss.NewStyle().
+					UnsetBackground().
+					Foreground(gray).
+					Padding(0, 2),
 			},
 		},
 		Files: FilesStyle{
@@ -87,6 +97,10 @@ func DefaultStyles() Styles {
 				UnselectedSubtitle: lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
 				SelectedTitle:      lipgloss.NewStyle().Foreground(brightBlue),
 				UnselectedTitle:    lipgloss.NewStyle().Foreground(gray),
+				NoItems: lipgloss.NewStyle().
+					UnsetBackground().
+					Foreground(gray).
+					Padding(0, 2),
 			},
 			Blurred: FilesBaseStyle{
 				Base:               lipgloss.NewStyle().Width(25).Height(1),
@@ -95,6 +109,10 @@ func DefaultStyles() Styles {
 				UnselectedSubtitle: lipgloss.NewStyle().Foreground(black),
 				SelectedTitle:      lipgloss.NewStyle().Foreground(brightBlue),
 				UnselectedTitle:    lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
+				NoItems: lipgloss.NewStyle().
+					UnsetBackground().
+					Foreground(gray).
+					Padding(0, 2),
 			},
 		},
 		Editor: EditorStyle{

@@ -8,9 +8,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type gistStatus int64
+
+const (
+	gist_status_drafted gistStatus = iota
+	gist_status_published
+)
+
 type gist struct {
-	id   string
-	name string
+	id     string
+	name   string
+	status gistStatus
 }
 
 func (f gist) FilterValue() string {
@@ -42,6 +50,7 @@ func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
 	l.SetShowHelp(false)
 	l.Styles.Title = styles.Title
 	l.Styles.TitleBar = styles.TitleBar
+	l.Styles.NoItems = styles.NoItems
 	return l
 }
 
@@ -106,5 +115,6 @@ func newFileList(items []list.Item, styles FilesBaseStyle) list.Model {
 	l.SetShowHelp(false)
 	l.Styles.Title = styles.Title
 	l.Styles.TitleBar = styles.TitleBar
+	l.Styles.NoItems = styles.NoItems
 	return l
 }
