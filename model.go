@@ -25,7 +25,6 @@ const (
 	dialog_create_gist dialogState = iota
 	dialog_create_file
 	dialog_opened
-	dialog_closed
 )
 
 type model struct {
@@ -60,8 +59,8 @@ func initialModel(shutdown chan os.Signal) model {
 				WriteTimeout: 10 * time.Second,
 			},
 		},
-		dialogScreen: newDialogModel(0, 0),
-		dialogState:  dialog_create_file,
+		dialogScreen: newDialogModel(0, 0, dialog_create_gist),
+		dialogState:  dialog_create_gist,
 	}
 }
 
@@ -105,9 +104,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 				return m, tea.Batch(cmds...)
 			} else {
-				m.dialogState = dialog_opened
 				// recreate with current viewport dimension to prevent jankiness
-				m.dialogScreen = newDialogModel(m.width, m.height)
+				m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState)
+				m.dialogState = dialog_opened
 				cmds = append(cmds, m.dialogScreen.Init())
 				m.screenState = dialogScreen
 				return m, tea.Batch(cmds...)
@@ -115,12 +114,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.screenState == dialogScreen {
 				m.screenState = mainScreen
-				m.dialogState = dialog_closed
 			}
 		}
 
 	case authSuccessMsg:
-		model := newMainModel(m.shutdown, msg.client, &m.dialogState)
+		model := newMainModel(m.shutdown, msg.client)
 		m.mainScreen = model
 		cmds = append(cmds, model.Init())
 		m.screenState = mainScreen
@@ -135,6 +133,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, newCmd)
 		}
 		return m, tea.Batch(cmds...)
+
+	case dialogStateChangeMsg:
+		m.dialogState = dialogState(msg)
+
+	case dialogMsg:
+		logs = append(logs, msg)
+		// revert back to the dialog state that we are at when triggering the dialog
+		m.dialogState = msg.state
+		m.screenState = mainScreen
 	}
 
 	switch m.screenState {

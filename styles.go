@@ -67,14 +67,14 @@ func DefaultStyles() Styles {
 			Focused: GistsBaseStyle{
 				Base:       lipgloss.NewStyle().Width(40).Height(1),
 				Title:      lipgloss.NewStyle().Padding(0, 1).Foreground(white),
-				TitleBar:   lipgloss.NewStyle().Background(blue).Width(40).Margin(0, 1, 1, 1).Padding(0, 1).Height(1),
+				TitleBar:   lipgloss.NewStyle().Background(blue).Width(40).Margin(0, 0, 1, 0).Padding(0, 1).Height(1),
 				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
 				Unselected: lipgloss.NewStyle().Foreground(gray),
 			},
 			Blurred: GistsBaseStyle{
 				Base:       lipgloss.NewStyle().Width(40).Height(1),
 				Title:      lipgloss.NewStyle().Padding(0, 1).Foreground(gray),
-				TitleBar:   lipgloss.NewStyle().Background(black).Width(40).Margin(0, 1, 1, 1).Padding(0, 1).Height(1),
+				TitleBar:   lipgloss.NewStyle().Background(black).Width(40).Margin(0, 0, 1, 0).Padding(0, 1).Height(1),
 				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
 				Unselected: lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
 			},

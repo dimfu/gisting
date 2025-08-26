@@ -51,11 +51,9 @@ type mainModel struct {
 	FilesStyle  FilesBaseStyle
 	GistsStyle  GistsBaseStyle
 	EditorStyle EditorBaseStyle
-
-	dialogState *dialogState
 }
 
-func newMainModel(shutdown chan os.Signal, githubClient *github.Client, dialogState *dialogState) mainModel {
+func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainModel {
 	defaultStyle := DefaultStyles()
 	m := mainModel{
 		gists:        map[gist][]list.Item{},
@@ -66,7 +64,6 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client, dialogSt
 		currentPane:  PANE_GISTS,
 		GistsStyle:   defaultStyle.Gists.Focused,
 		FilesStyle:   defaultStyle.Files.Blurred,
-		dialogState:  dialogState,
 	}
 
 	if err := m.getGists(); err != nil {
@@ -91,7 +88,24 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client, dialogSt
 	textEditor.ShowMessages(true)
 	textEditor.SetCursorBlinkMode(true)
 	textEditor.SetLanguage("go", "nord")
-	textEditor.HideStatusLine(true)
+
+	var defaultEditorTheme = editor.Theme{
+		NormalModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("255")),
+		InsertModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("26")).Foreground(lipgloss.Color("255")),
+		VisualModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("127")).Foreground(lipgloss.Color("255")),
+		CommandModeStyle:       lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("255")),
+		CommandLineStyle:       lipgloss.NewStyle().Background(lipgloss.Color("235")).Foreground(lipgloss.Color("255")),
+		StatusLineStyle:        lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("255")),
+		MessageStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("34")),
+		ErrorStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("208")),
+		LineNumberStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Width(4).Align(lipgloss.Right),
+		CurrentLineNumberStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Width(4).Align(lipgloss.Right),
+		SelectionStyle:         lipgloss.NewStyle().Background(lipgloss.Color("237")),
+		HighlightYankStyle:     lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true),
+		PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
+	}
+
+	textEditor.WithTheme(defaultEditorTheme)
 
 	m.editor = textEditor
 
@@ -305,20 +319,22 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height - 2
+		m.height = msg.Height - 1
 
-		gv, gh := m.GistsStyle.Base.GetFrameSize()
-		m.gistList.SetSize(m.width-gv, m.height)
+		gv, _ := m.GistsStyle.Base.GetFrameSize()
+		m.gistList.SetSize(m.width, m.height)
 
-		fv, fh := m.FilesStyle.Base.GetFrameSize()
-		m.fileList.SetSize(m.width-fh, m.height-fv)
+		fv, _ := m.FilesStyle.Base.GetFrameSize()
+		m.fileList.SetSize(m.width, m.height)
 
-		m.editor.SetSize(m.width-fv-gv-70, m.height-gh-fh)
+		m.editor.SetSize(m.width-fv-gv-67, m.height+1)
 	default:
 	}
 
 	return m, tea.Batch(cmds...)
 }
+
+type dialogStateChangeMsg dialogState
 
 func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 	var cmds []tea.Cmd
@@ -331,14 +347,18 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.EditorStyle = DefaultStyles().Editor.Blurred
 		m.gistList, cmd = m.gistList.Update(msg)
 		cmds = append(cmds, cmd)
-		*m.dialogState = dialog_create_gist
+		cmds = append(cmds, func() tea.Msg {
+			return dialogStateChangeMsg(dialog_create_gist)
+		})
 	case PANE_FILES:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Focused
 		m.EditorStyle = DefaultStyles().Editor.Blurred
 		m.fileList, cmd = m.fileList.Update(msg)
 		cmds = append(cmds, cmd)
-		*m.dialogState = dialog_create_file
+		cmds = append(cmds, func() tea.Msg {
+			return dialogStateChangeMsg(dialog_create_file)
+		})
 	case PANE_EDITOR:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Blurred
@@ -355,14 +375,17 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 }
 
 func (m mainModel) View() string {
-	return lipgloss.JoinVertical(
+	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			m.gistList.View(),
-			m.fileList.View(),
-			m.editor.View(),
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				m.gistList.View(),
+				m.fileList.View(),
+			),
+			lipgloss.NewStyle().Render(m.help.View(m.keymap)),
 		),
-		lipgloss.NewStyle().MarginLeft(2).Render(m.help.View(m.keymap)),
+		m.editor.View(),
 	)
 }
