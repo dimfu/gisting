@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"sort"
 	"syscall"
 	"time"
 
@@ -89,12 +90,16 @@ func (m *model) createGist(name string) []tea.Cmd {
 	// get the current items from gistList
 	items := m.mainScreen.gistList.Items()
 
-	// TODO: should this be re ordered alphabetically?
-
 	items = append(items, gist{
 		id:     id,
 		name:   name,
 		status: gist_status_drafted,
+	})
+
+	sort.Slice(items, func(i, j int) bool {
+		a := items[i].(gist)
+		b := items[j].(gist)
+		return a.name < b.name
 	})
 
 	// update gistList with the new slice

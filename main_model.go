@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -73,7 +76,14 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 	// populate gist list
 	var firstgist *gist
 	gistFiles := []list.Item{}
-	for g := range m.gists {
+
+	// sort gist alphabetically
+	sortedGists := slices.Collect(maps.Keys(m.gists))
+	slices.SortFunc(sortedGists, func(a, b gist) int {
+		return strings.Compare(a.name, b.name)
+	})
+
+	for _, g := range sortedGists {
 		if firstgist == nil {
 			firstgist = &g
 		}
