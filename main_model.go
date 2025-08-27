@@ -207,12 +207,36 @@ func (m *mainModel) getGists() error {
 
 	for _, doc := range draftedDocs {
 		statusInt := doc.Get("status").(int64)
+		gistId := doc.Get("id").(string)
 		g := gist{
-			id:     doc.Get("id").(string),
+			id:     gistId,
 			name:   doc.Get("description").(string),
 			status: gistStatus(statusInt),
 		}
-		m.gists[g] = []list.Item{}
+
+		fileDocs, err := storage.db.FindAll(
+			query.NewQuery(string(collectionDraftedFiles)).Where(query.Field("gist_id").Eq(gistId)),
+		)
+
+		if err != nil {
+			return err
+		}
+
+		items := []list.Item{}
+		for _, doc := range fileDocs {
+			i := file{
+				title:     doc.Get("title").(string),
+				rawUrl:    doc.Get("rawUrl").(string),
+				stale:     doc.Get("stale").(bool),
+				desc:      doc.Get("desc").(string),
+				updatedAt: doc.Get("updatedAt").(string),
+				content:   doc.Get("content").(string),
+				draft:     doc.Get("draft").(bool),
+			}
+			items = append(items, i)
+		}
+
+		m.gists[g] = items
 	}
 
 	// insert new gist records into the collectiion
@@ -234,7 +258,7 @@ func (m *mainModel) loadSelectedFile() tea.Cmd {
 	}
 
 	f, _ := li.(file)
-	content, err := f.content()
+	content, err := f.getContent()
 	if err != nil {
 		return func() tea.Msg {
 			return errMsg{err: err}
@@ -256,7 +280,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case rerenderMsg:
-		logs = append(logs, "rerending inside the main model")
 		cmds = append(cmds, m.updateActivePane(msg)...)
 		return m, tea.Batch(cmds...)
 	case editor.SaveMsg:
@@ -295,6 +318,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.gistList, cmd = m.gistList.Update(msg)
 				cmds = append(cmds, cmd)
+				logs = append(logs, m.gistList.SelectedItem())
 				if selectedGist, ok := m.gistList.SelectedItem().(gist); ok {
 					for gist, files := range m.gists {
 						if gist.id == selectedGist.id {

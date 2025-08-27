@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -14,7 +15,9 @@ type file struct {
 	desc      string `clover:"desc"`
 	rawUrl    string `clover:"rawUrl"`
 	updatedAt string `clover:"updatedAt"`
+	content   string `clover:"content"`
 	stale     bool
+	draft     bool
 }
 
 type files struct {
@@ -25,21 +28,25 @@ func (f file) Title() string       { return f.title }
 func (f file) Description() string { return f.desc }
 func (f file) FilterValue() string { return f.title }
 
-func (f file) content() (string, error) {
+func (f file) getContent() (string, error) {
 	var content string
 	existing, err := storage.db.FindFirst(
 		query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(f.rawUrl)),
 	)
 	if err != nil {
-		logs = append(logs, err.Error())
+		logs = append(logs, fmt.Sprintf("Could not find file with url %s", f.rawUrl))
 		return "", err
+	}
+
+	if f.draft {
+		return f.content, nil
 	}
 
 	if f.stale || existing == nil {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Get(f.rawUrl)
 		if err != nil {
-			logs = append(logs, err.Error())
+			logs = append(logs, fmt.Sprintf("Could not fetch file with raw url: %s", f.rawUrl))
 			return "", err
 		}
 		defer resp.Body.Close()
