@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
-
+	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v74/github"
+	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 	"github.com/ostafen/clover/v2/document"
 	"github.com/ostafen/clover/v2/query"
 	"golang.org/x/oauth2"
@@ -97,7 +97,6 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 	textEditor := editor.New(0, 0)
 	textEditor.ShowMessages(true)
 	textEditor.SetCursorBlinkMode(true)
-	textEditor.SetLanguage("go", "nord")
 
 	var defaultEditorTheme = editor.Theme{
 		NormalModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("255")),
@@ -131,6 +130,28 @@ func (m *mainModel) previous() {
 	if m.currentPane < 0 {
 		m.currentPane = MAX_PANE - 1
 	}
+}
+
+func (m mainModel) getEditorLanguage(f file) string {
+	// get the language alias from the title first
+	lexer := lexers.Match(f.title)
+	// if no extension exist, analyze the content itself
+	if lexer == nil {
+		lexer = lexers.Analyse(f.content)
+	}
+	// fallback to whatever the lexer wants (i dont give a shit)
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+
+	langName := lexer.Config().Name
+	var alias string
+	if len(lexer.Config().Aliases) > 0 {
+		alias = lexer.Config().Aliases[0]
+	} else {
+		alias = langName
+	}
+	return alias
 }
 
 func (m *mainModel) getGists() error {
@@ -288,6 +309,10 @@ func (m *mainModel) loadSelectedFile() tea.Cmd {
 			return errMsg{err: err}
 		}
 	}
+
+	alias := m.getEditorLanguage(f)
+	logs = append(logs, alias)
+	m.editor.SetLanguage(alias, "nord")
 
 	return func() tea.Msg {
 		return updateEditorContent(content)
