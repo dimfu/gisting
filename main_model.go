@@ -87,7 +87,7 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 		if firstgist == nil {
 			firstgist = &g
 		}
-		gistFiles = append(gistFiles, gist{id: g.id, name: g.name})
+		gistFiles = append(gistFiles, gist{id: g.id, name: g.name, status: g.status})
 	}
 
 	m.gistList = newGistList(gistFiles, m.GistsStyle)
@@ -318,7 +318,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.gistList, cmd = m.gistList.Update(msg)
 				cmds = append(cmds, cmd)
-				logs = append(logs, m.gistList.SelectedItem())
 				if selectedGist, ok := m.gistList.SelectedItem().(gist); ok {
 					for gist, files := range m.gists {
 						if gist.id == selectedGist.id {

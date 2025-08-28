@@ -254,6 +254,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shutdown <- syscall.SIGTERM
 			return m, tea.Quit
 		case "a":
+			// ignore dialog action if we're on uploaded files pane
+			if m.dialogState.state == dialog_create_file {
+				selectedGist := m.mainScreen.gistList.SelectedItem()
+				gist, ok := selectedGist.(gist)
+				if !ok {
+					return m, nil
+				}
+				if gist.status == gist_status_published {
+					return m, nil
+				}
+			}
+
 			// handle "a" keystroke if dialog already open
 			if m.dialogState.state == dialog_opened {
 				var updated tea.Model
