@@ -70,7 +70,7 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 	}
 
 	if err := m.getGists(); err != nil {
-		panic(fmt.Sprintf("Could not get gists on initial start up: %v", err))
+		panic(fmt.Sprintf("Could not get gists on initial start up: \n%v", err))
 	}
 
 	// populate gist list
@@ -146,7 +146,9 @@ func (m *mainModel) getGists() error {
 		return err
 	}
 
+	publishedGistRawUrls := []string{}
 	docs := []*document.Document{}
+
 	for _, g := range gists {
 		items := []list.Item{}
 		for _, f := range g.GetFiles() {
@@ -162,22 +164,12 @@ func (m *mainModel) getGists() error {
 				query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(i.rawUrl)),
 			)
 			if err != nil {
-				continue
+				return fmt.Errorf("Error while finding gist content with raw url %s\n%v", i.rawUrl, err)
 			}
 
-			if existing != nil {
-				// if existing data is unchanged (based on the date time) skip db operations since there is nothing to change
-				existingUA, _ := existing.Get("updatedAt").(string)
-				if existingUA >= i.updatedAt {
-					items = append(items, i)
-					continue
-				}
-				i.stale = true
-				existing.Set("updatedAt", i.updatedAt)
-				if err := storage.db.Save(string(collectionGists), existing); err != nil {
-					return fmt.Errorf("failed to update gist: %w", err)
-				}
-			} else {
+			publishedGistRawUrls = append(publishedGistRawUrls, i.rawUrl)
+
+			if existing == nil {
 				doc := document.NewDocument()
 				doc.SetAll(map[string]any{
 					"title":     i.title,
@@ -185,8 +177,27 @@ func (m *mainModel) getGists() error {
 					"rawUrl":    i.rawUrl,
 					"updatedAt": i.updatedAt,
 				})
-				docs = append(docs, doc)
+
+				id, err := storage.db.InsertOne(string(collectionGistContent), doc)
+				if err != nil {
+					return fmt.Errorf(`failed to insert gist "%s": %w`, g.GetDescription(), err)
+				}
+				doc.Set("_id", id)
+				existing = doc
 			}
+
+			// if existing data is unchanged (based on the date time) skip db operations since there is nothing to change
+			existingUA, _ := existing.Get("updatedAt").(string)
+			if existingUA >= i.updatedAt {
+				items = append(items, i)
+				continue
+			}
+			i.stale = true
+			existing.Set("updatedAt", i.updatedAt)
+			if err := storage.db.Save(string(collectionGistContent), existing); err != nil {
+				return fmt.Errorf(`failed to update gist "%s": %w`, g.GetDescription(), err)
+			}
+
 			items = append(items, i)
 		}
 		g := gist{
@@ -195,6 +206,19 @@ func (m *mainModel) getGists() error {
 			status: gist_status_published,
 		}
 		m.gists[g] = items
+	}
+
+	// remove record that is no longer used after a rename if there's any
+	for _, gist := range gists {
+		for _, f := range gist.GetFiles() {
+			skip := slices.Contains(publishedGistRawUrls, f.GetRawURL())
+			if !skip {
+				err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(f.GetRawURL())))
+				if err != nil {
+					return fmt.Errorf(`failed to delete unused gist file collection from "%s": %w`, gist.GetDescription(), err)
+				}
+			}
+		}
 	}
 
 	draftedDocs, err := storage.db.FindAll(
