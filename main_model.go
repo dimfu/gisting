@@ -193,10 +193,9 @@ func (m *mainModel) getGists() error {
 			if existing == nil {
 				doc := document.NewDocument()
 				doc.SetAll(map[string]any{
-					"title":     i.title,
-					"desc":      i.desc,
-					"rawUrl":    i.rawUrl,
-					"updatedAt": i.updatedAt,
+					"title":  i.title,
+					"desc":   i.desc,
+					"rawUrl": i.rawUrl,
 				})
 
 				id, err := storage.db.InsertOne(string(collectionGistContent), doc)
@@ -311,7 +310,6 @@ func (m *mainModel) loadSelectedFile() tea.Cmd {
 	}
 
 	alias := m.getEditorLanguage(f)
-	logs = append(logs, alias)
 	m.editor.SetLanguage(alias, "nord")
 
 	return func() tea.Msg {
