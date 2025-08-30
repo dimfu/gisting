@@ -168,12 +168,13 @@ func (m *mainModel) getGists() error {
 	}
 
 	publishedGistRawUrls := []string{}
-	docs := []*document.Document{}
 
+	// get the uploaded gists
 	for _, g := range gists {
 		items := []list.Item{}
 		for _, f := range g.GetFiles() {
 			i := file{
+				gistId:    g.GetID(),
 				title:     f.GetFilename(),
 				desc:      g.GetDescription(),
 				rawUrl:    f.GetRawURL(),
@@ -193,6 +194,7 @@ func (m *mainModel) getGists() error {
 			if existing == nil {
 				doc := document.NewDocument()
 				doc.SetAll(map[string]any{
+					"gistId": i.gistId,
 					"title":  i.title,
 					"desc":   i.desc,
 					"rawUrl": i.rawUrl,
@@ -241,14 +243,13 @@ func (m *mainModel) getGists() error {
 		}
 	}
 
+	// get all the drafted gists
 	draftedDocs, err := storage.db.FindAll(
 		query.NewQuery(string(collectionDraftedGists)),
 	)
-
 	if err != nil {
 		return err
 	}
-
 	for _, doc := range draftedDocs {
 		statusInt := doc.Get("status").(int64)
 		gistId := doc.Get("id").(string)
@@ -259,7 +260,7 @@ func (m *mainModel) getGists() error {
 		}
 
 		fileDocs, err := storage.db.FindAll(
-			query.NewQuery(string(collectionDraftedFiles)).Where(query.Field("gist_id").Eq(gistId)),
+			query.NewQuery(string(collectionDraftedGistContent)).Where(query.Field("gistId").Eq(gistId)),
 		)
 
 		if err != nil {
@@ -269,6 +270,7 @@ func (m *mainModel) getGists() error {
 		items := []list.Item{}
 		for _, doc := range fileDocs {
 			i := file{
+				gistId:    doc.Get("gistId").(string),
 				title:     doc.Get("title").(string),
 				rawUrl:    doc.Get("rawUrl").(string),
 				stale:     doc.Get("stale").(bool),
@@ -281,13 +283,6 @@ func (m *mainModel) getGists() error {
 		}
 
 		m.gists[g] = items
-	}
-
-	// insert new gist records into the collectiion
-	if len(docs) > 0 {
-		if err := storage.db.Insert(string(collectionGists), docs...); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -437,10 +432,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-type dialogStateChangeMsg struct {
-	state    dialogState
-	gistName string
-}
+type dialogStateChangeMsg dialogState
 
 func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 	var cmds []tea.Cmd
@@ -454,10 +446,7 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.gistList, cmd = m.gistList.Update(msg)
 		cmds = append(cmds, cmd)
 		cmds = append(cmds, func() tea.Msg {
-			return dialogStateChangeMsg{
-				state:    dialog_create_gist,
-				gistName: "",
-			}
+			return dialogStateChangeMsg(dialog_pane_gist)
 		})
 	case PANE_FILES:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
@@ -466,15 +455,7 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.fileList, cmd = m.fileList.Update(msg)
 		cmds = append(cmds, cmd)
 		cmds = append(cmds, func() tea.Msg {
-			selectedItem := m.gistList.SelectedItem()
-			selectedGist, ok := selectedItem.(gist)
-			if !ok {
-				return nil
-			}
-			return dialogStateChangeMsg{
-				state:    dialog_create_file,
-				gistName: selectedGist.name,
-			}
+			return dialogStateChangeMsg(dialog_pane_file)
 		})
 	case PANE_EDITOR:
 		m.GistsStyle = DefaultStyles().Gists.Blurred

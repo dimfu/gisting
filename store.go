@@ -14,10 +14,10 @@ type store struct {
 type collectionName string
 
 const (
-	collectionGists        collectionName = "gists"
-	collectionGistContent  collectionName = "gist_content_list"
-	collectionDraftedGists collectionName = "drafted_gists"
-	collectionDraftedFiles collectionName = "drafted_files"
+	collectionGists              collectionName = "gists"
+	collectionGistContent        collectionName = "gist_content_list"
+	collectionDraftedGists       collectionName = "drafted_gists"
+	collectionDraftedGistContent                = "drafted_gist_content_list"
 )
 
 var (
@@ -25,7 +25,7 @@ var (
 		collectionGists,
 		collectionGistContent,
 		collectionDraftedGists,
-		collectionDraftedFiles,
+		collectionDraftedGistContent,
 	}
 )
 

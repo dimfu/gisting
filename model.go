@@ -26,21 +26,13 @@ const (
 	dialogScreen
 )
 
-type dialogState int
-
-const (
-	dialog_create_gist dialogState = iota
-	dialog_create_file
-	dialog_opened
-)
-
 type model struct {
 	client   *github.Client
 	shutdown chan os.Signal
 
 	screenState screen
 
-	dialogState dialogStateChangeMsg
+	dialogState dialogState
 
 	authScreen   authModel
 	mainScreen   mainModel
@@ -68,8 +60,8 @@ func initialModel(shutdown chan os.Signal) model {
 				WriteTimeout: 10 * time.Second,
 			},
 		},
-		dialogScreen: newDialogModel(0, 0, dialogStateChangeMsg{state: dialog_create_gist, gistName: ""}, nil),
-		dialogState:  dialogStateChangeMsg{state: dialog_create_gist, gistName: ""},
+		dialogScreen: newDialogModel(0, 0, dialog_pane_gist, nil),
+		dialogState:  dialog_pane_gist,
 	}
 }
 
@@ -177,7 +169,7 @@ func (m *model) createFile(title, gistId string) []tea.Cmd {
 		"id":        id, // id used only for the database ops
 		"title":     title,
 		"desc":      "",
-		"gist_id":   gistId,
+		"gistId":    gistId,
 		"content":   "",
 		"rawUrl":    "",
 		"stale":     false,
@@ -187,6 +179,7 @@ func (m *model) createFile(title, gistId string) []tea.Cmd {
 
 	items := m.mainScreen.fileList.Items()
 	f := file{
+		gistId:    gistId,
 		title:     title,
 		content:   "",
 		desc:      "",
@@ -198,7 +191,7 @@ func (m *model) createFile(title, gistId string) []tea.Cmd {
 	items = append(items, f)
 	m.mainScreen.gists[currGistMapItem] = items
 
-	if err := storage.db.Insert(string(collectionDraftedFiles), doc); err != nil {
+	if err := storage.db.Insert(string(collectionDraftedGistContent), doc); err != nil {
 		logs = append(logs, err)
 		return cmds
 	}
@@ -220,6 +213,36 @@ func (m *model) uploadGist() tea.Cmd {
 	return func() tea.Msg {
 		return nil
 	}
+}
+
+func (m *model) deleteFile(gistId string) tea.Cmd {
+	selectedFile := m.mainScreen.fileList.SelectedItem()
+	file, ok := selectedFile.(file)
+	if !ok {
+		return nil
+	}
+
+	if file.gistId == gistId {
+		if file.draft {
+			logs = append(logs, "deleting draft file")
+		} else {
+			logs = append(logs, "deleting uploaded file")
+		}
+	}
+
+	rerender := func() tea.Msg {
+		return rerenderMsg(true)
+	}
+
+	return rerender
+}
+
+// only use when the dialog initial render is janky
+func (m *model) reInitDialog() tea.Cmd {
+	m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState, m.client)
+	// change the mainscreen model to dialog model
+	m.screenState = dialogScreen
+	return m.dialogScreen.Init()
 }
 
 func (m model) Init() tea.Cmd {
@@ -255,7 +278,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "a":
 			// ignore dialog action if we're on uploaded files pane
-			if m.dialogState.state == dialog_create_file {
+			if m.dialogState == dialog_pane_file {
 				selectedGist := m.mainScreen.gistList.SelectedItem()
 				gist, ok := selectedGist.(gist)
 				if !ok {
@@ -267,21 +290,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// handle "a" keystroke if dialog already open
-			if m.dialogState.state == dialog_opened {
+			if m.dialogState == dialog_opened {
 				var updated tea.Model
 				updated, cmd = m.dialogScreen.form.Update(msg)
 				m.dialogScreen.form = updated.(*huh.Form)
 				cmds = append(cmds, cmd)
 				return m, tea.Batch(cmds...)
 			} else {
-				// recreate with current viewport dimension to prevent jankiness
-				m.dialogScreen = newDialogModel(m.width, m.height, dialogStateChangeMsg{
-					state:    m.dialogState.state,
-					gistName: m.dialogState.gistName,
-				}, m.client)
-				m.dialogState = dialogStateChangeMsg{state: dialog_opened, gistName: ""}
-				cmds = append(cmds, m.dialogScreen.Init())
+				reinit := m.reInitDialog()
+				m.dialogState = dialog_opened
+				cmds = append(cmds, reinit)
 				m.screenState = dialogScreen
+				return m, tea.Batch(cmds...)
+			}
+		case "d":
+			if m.dialogState == dialog_pane_file || m.dialogState == dialog_pane_gist {
+				reinit := m.reInitDialog()
+				m.dialogState = dialog_delete
+				cmds = append(cmds, reinit)
 				return m, tea.Batch(cmds...)
 			}
 		case "esc":
@@ -309,24 +335,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case dialogStateChangeMsg:
-		m.dialogState = msg
+		m.dialogState = dialogState(msg)
 
-	case dialogSubmitMsg:
-		logs = append(logs, msg)
-		// revert back to the dialog state that we are at when triggering the dialog
-		m.dialogState = dialogStateChangeMsg{state: msg.state, gistName: msg.gistName}
-		m.screenState = mainScreen
-
-		if msg.state == dialog_create_gist {
+	case dialogCreateSubmitMsg:
+		if msg.state == dialog_pane_gist {
 			cmds = append(cmds, m.createGist(msg.value)...)
 		} else {
-			selectedItem := m.mainScreen.gistList.SelectedItem()
-			gist, ok := selectedItem.(gist)
+			selectedGist := m.mainScreen.gistList.SelectedItem()
+			gist, ok := selectedGist.(gist)
 			if !ok {
 				return m, nil
 			}
-			cmds = append(cmds, m.createFile(msg.value, gist.id)...)
+
+			if m.dialogState == dialog_delete {
+				cmds = append(cmds, m.deleteFile(gist.id))
+			} else {
+				cmds = append(cmds, m.createFile(msg.value, gist.id)...)
+			}
 		}
+		m.screenState = mainScreen
 
 	case rerenderMsg:
 		newMainScreen, newCmd := m.mainScreen.Update(msg)

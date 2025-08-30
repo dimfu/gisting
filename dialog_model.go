@@ -9,36 +9,31 @@ import (
 	"github.com/google/go-github/v74/github"
 )
 
+type dialogState int
+
+const (
+	dialog_pane_gist dialogState = iota
+	dialog_pane_file
+	dialog_opened
+	dialog_delete
+)
+
 type dialogModel struct {
 	client *github.Client
 	width  int
 	height int
-	state  dialogStateChangeMsg
+	state  dialogState
 	form   *huh.Form
 }
 
-type dialogSubmitMsg struct {
+type dialogCreateSubmitMsg struct {
 	state    dialogState
 	gistName string
 	value    string
 }
 
-func newDialogModel(width, height int, s dialogStateChangeMsg, client *github.Client) dialogModel {
-	m := dialogModel{
-		client: client,
-		width:  width,
-		height: height,
-		state:  s,
-	}
-
-	var actionType string
-	if s.state == dialog_create_gist {
-		actionType = "Gist"
-	} else {
-		actionType = "File"
-	}
-
-	m.form = huh.NewForm(
+func formCreate(actionType string) *huh.Form {
+	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewText().
 				Placeholder(fmt.Sprintf("Enter %s name", actionType)).Key("value").Lines(1).WithWidth(60),
@@ -47,6 +42,35 @@ func newDialogModel(width, height int, s dialogStateChangeMsg, client *github.Cl
 				Negative("Cancel"),
 		),
 	)
+}
+
+func formDelete() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().Title("Are you sure?").Affirmative("Create").Negative("Cancel"),
+		),
+	)
+}
+
+func newDialogModel(width, height int, state dialogState, client *github.Client) dialogModel {
+	m := dialogModel{
+		client: client,
+		width:  width,
+		height: height,
+		state:  state,
+	}
+
+	var actionType string
+	switch state {
+	case dialog_pane_gist:
+		actionType = "Gist"
+	case dialog_pane_file:
+		actionType = "File"
+	case dialog_delete:
+		actionType = "Delete"
+	}
+
+	m.form = formCreate(actionType)
 
 	m.form.WithShowHelp(false)
 	return m
@@ -74,10 +98,9 @@ func (m dialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.form.State == huh.StateCompleted {
 		cmds = append(cmds, func() tea.Msg {
-			return dialogSubmitMsg{
-				state:    m.state.state,
-				gistName: m.state.gistName,
-				value:    m.form.GetString("value"),
+			return dialogCreateSubmitMsg{
+				state: m.state,
+				value: m.form.GetString("value"),
 			}
 		})
 		// prevent the form firing up again thousands of time when submitting
