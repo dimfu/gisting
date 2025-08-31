@@ -11,6 +11,7 @@ import (
 )
 
 type file struct {
+	id        string `clover:"id"`
 	gistId    string `clover:"gistId"`
 	title     string `clover:"title"`
 	desc      string `clover:"desc"`

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -60,7 +62,7 @@ func initialModel(shutdown chan os.Signal) model {
 				WriteTimeout: 10 * time.Second,
 			},
 		},
-		dialogScreen: newDialogModel(0, 0, dialog_pane_gist, nil),
+		dialogScreen: newDialogModel(0, 0, dialog_pane_gist, nil, formCreate("File")),
 		dialogState:  dialog_pane_gist,
 	}
 }
@@ -133,43 +135,15 @@ func (m *model) createGist(name string) []tea.Cmd {
 }
 
 // create gist and store it in drafted file collection
-func (m *model) createFile(title, gistId string) []tea.Cmd {
+func (m *model) createFile(title string, gist gist) []tea.Cmd {
 	var cmds []tea.Cmd
-
-	gistDoc, err := storage.db.FindFirst(
-		query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(gistId)),
-	)
-	if err != nil {
-		logs = append(logs, fmt.Sprintf("Could not get gist document with id %s", gistId))
-		return cmds
-	}
-
-	var (
-		currGistMapItem gist
-		foundGist       bool
-	)
-
-	draftedGistId := gistDoc.Get("id").(string)
-	for gist := range m.mainScreen.gists {
-		if gist.id == draftedGistId {
-			currGistMapItem = gist
-			foundGist = true
-			break
-		}
-	}
-
-	if !foundGist {
-		logs = append(logs, fmt.Sprintf("Could not find gist inside the main app map\n"))
-		return cmds
-	}
-
 	doc := document.NewDocument()
 	id := uuid.New().String()
 	doc.SetAll(map[string]any{
-		"id":        id, // id used only for the database ops
+		"id":        id,
 		"title":     title,
 		"desc":      "",
-		"gistId":    gistId,
+		"gistId":    gist.id,
 		"content":   "",
 		"rawUrl":    "",
 		"stale":     false,
@@ -179,7 +153,8 @@ func (m *model) createFile(title, gistId string) []tea.Cmd {
 
 	items := m.mainScreen.fileList.Items()
 	f := file{
-		gistId:    gistId,
+		id:        id,
+		gistId:    gist.id,
 		title:     title,
 		content:   "",
 		desc:      "",
@@ -189,7 +164,7 @@ func (m *model) createFile(title, gistId string) []tea.Cmd {
 		draft:     true,
 	}
 	items = append(items, f)
-	m.mainScreen.gists[currGistMapItem] = items
+	m.mainScreen.gists[gist] = items
 
 	if err := storage.db.Insert(string(collectionDraftedGistContent), doc); err != nil {
 		logs = append(logs, err)
@@ -215,31 +190,52 @@ func (m *model) uploadGist() tea.Cmd {
 	}
 }
 
-func (m *model) deleteFile(gistId string) tea.Cmd {
-	selectedFile := m.mainScreen.fileList.SelectedItem()
-	file, ok := selectedFile.(file)
-	if !ok {
-		return nil
+func (m *model) deleteFile(g gist) error {
+	f, ok := m.mainScreen.fileList.SelectedItem().(file)
+	if !ok || f.gistId != g.id {
+		return errors.New("Cannot get the selected file")
 	}
 
-	if file.gistId == gistId {
-		if file.draft {
-			logs = append(logs, "deleting draft file")
-		} else {
-			logs = append(logs, "deleting uploaded file")
+	// uploaded file handling
+	if !f.draft {
+		gist := github.Gist{
+			Files: map[github.GistFilename]github.GistFile{
+				github.GistFilename(f.title): {},
+			},
+		}
+		_, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
+		if err != nil {
+			return fmt.Errorf("Could not delete gist file %q from Github\n%w", f.title, err)
+		}
+
+		err = storage.db.Delete(
+			query.NewQuery(string(collectionGistContent)).
+				Where(query.Field("id").Eq(f.id)),
+		)
+		if err != nil {
+			return fmt.Errorf("Could not delete file %q from collection\n", f.title)
+		}
+	} else {
+		// drafted file handling
+		err := storage.db.Delete(
+			query.NewQuery(collectionDraftedGistContent).
+				Where(query.Field("id").Eq(f.id)),
+		)
+		if err != nil {
+			return fmt.Errorf(`Could not delete drafted file "%s"\n`, f.title)
 		}
 	}
 
-	rerender := func() tea.Msg {
-		return rerenderMsg(true)
-	}
+	// remove deleted file & update the gist file list with the new one
+	m.mainScreen.fileList.RemoveItem(m.mainScreen.fileList.Index())
+	m.mainScreen.gists[g] = m.mainScreen.fileList.Items()
 
-	return rerender
+	return nil
 }
 
 // only use when the dialog initial render is janky
-func (m *model) reInitDialog() tea.Cmd {
-	m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState, m.client)
+func (m *model) reInitDialog(form *huh.Form) tea.Cmd {
+	m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState, m.client, form)
 	// change the mainscreen model to dialog model
 	m.screenState = dialogScreen
 	return m.dialogScreen.Init()
@@ -273,7 +269,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			m.shutdown <- syscall.SIGTERM
 			return m, tea.Quit
 		case "a":
@@ -297,7 +293,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 				return m, tea.Batch(cmds...)
 			} else {
-				reinit := m.reInitDialog()
+				var form *huh.Form
+				if m.dialogState == dialog_pane_gist {
+					form = formCreate("Gist")
+				} else if m.dialogState == dialog_pane_file {
+					form = formCreate("File")
+				}
+				reinit := m.reInitDialog(form)
 				m.dialogState = dialog_opened
 				cmds = append(cmds, reinit)
 				m.screenState = dialogScreen
@@ -305,7 +307,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "d":
 			if m.dialogState == dialog_pane_file || m.dialogState == dialog_pane_gist {
-				reinit := m.reInitDialog()
+				reinit := m.reInitDialog(formDelete())
+				// change the dialog state to dialog_delete so that when we are submitting the dialog form
+				// we can proceed to using delete condition instead of create
 				m.dialogState = dialog_delete
 				cmds = append(cmds, reinit)
 				return m, tea.Batch(cmds...)
@@ -338,22 +342,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dialogState = dialogState(msg)
 
 	case dialogCreateSubmitMsg:
-		if msg.state == dialog_pane_gist {
-			cmds = append(cmds, m.createGist(msg.value)...)
-		} else {
-			selectedGist := m.mainScreen.gistList.SelectedItem()
-			gist, ok := selectedGist.(gist)
-			if !ok {
-				return m, nil
-			}
+		selectedGist := m.mainScreen.gistList.SelectedItem()
+		gist, ok := selectedGist.(gist)
+		if !ok {
+			return m, nil
+		}
 
+		if msg.state == dialog_pane_gist {
 			if m.dialogState == dialog_delete {
-				cmds = append(cmds, m.deleteFile(gist.id))
+				logs = append(logs, "Deleting gist")
 			} else {
-				cmds = append(cmds, m.createFile(msg.value, gist.id)...)
+				cmds = append(cmds, m.createGist(msg.value)...)
+			}
+		} else {
+			if m.dialogState == dialog_delete {
+				if err := m.deleteFile(gist); err != nil {
+					panic(err)
+				}
+			} else {
+				cmds = append(cmds, m.createFile(msg.value, gist)...)
 			}
 		}
+		cmds = append(cmds, m.mainScreen.updateActivePane(msg)...)
 		m.screenState = mainScreen
+		return m, tea.Batch(cmds...)
 
 	case rerenderMsg:
 		newMainScreen, newCmd := m.mainScreen.Update(msg)

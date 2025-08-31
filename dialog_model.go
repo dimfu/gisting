@@ -52,7 +52,7 @@ func formDelete() *huh.Form {
 	)
 }
 
-func newDialogModel(width, height int, state dialogState, client *github.Client) dialogModel {
+func newDialogModel(width, height int, state dialogState, client *github.Client, form *huh.Form) dialogModel {
 	m := dialogModel{
 		client: client,
 		width:  width,
@@ -60,17 +60,7 @@ func newDialogModel(width, height int, state dialogState, client *github.Client)
 		state:  state,
 	}
 
-	var actionType string
-	switch state {
-	case dialog_pane_gist:
-		actionType = "Gist"
-	case dialog_pane_file:
-		actionType = "File"
-	case dialog_delete:
-		actionType = "Delete"
-	}
-
-	m.form = formCreate(actionType)
+	m.form = form
 
 	m.form.WithShowHelp(false)
 	return m

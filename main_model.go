@@ -8,7 +8,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -17,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v74/github"
+	"github.com/google/uuid"
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 	"github.com/ostafen/clover/v2/document"
 	"github.com/ostafen/clover/v2/query"
@@ -75,7 +75,7 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 
 	// populate gist list
 	var firstgist *gist
-	gistFiles := []list.Item{}
+	gistList := []list.Item{}
 
 	// sort gist alphabetically
 	sortedGists := slices.Collect(maps.Keys(m.gists))
@@ -87,10 +87,10 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 		if firstgist == nil {
 			firstgist = &g
 		}
-		gistFiles = append(gistFiles, gist{id: g.id, name: g.name, status: g.status})
+		gistList = append(gistList, gist{id: g.id, name: g.name, status: g.status})
 	}
 
-	m.gistList = newGistList(gistFiles, m.GistsStyle)
+	m.gistList = newGistList(gistList, m.GistsStyle)
 	m.fileList = newFileList(m.gists[*firstgist], m.FilesStyle)
 
 	// dont care about the width and height because we set it inside the tea.WindowSizeMsg
@@ -174,6 +174,7 @@ func (m *mainModel) getGists() error {
 		items := []list.Item{}
 		for _, f := range g.GetFiles() {
 			i := file{
+				id:        uuid.New().String(),
 				gistId:    g.GetID(),
 				title:     f.GetFilename(),
 				desc:      g.GetDescription(),
@@ -194,6 +195,7 @@ func (m *mainModel) getGists() error {
 			if existing == nil {
 				doc := document.NewDocument()
 				doc.SetAll(map[string]any{
+					"id":     i.id,
 					"gistId": i.gistId,
 					"title":  i.title,
 					"desc":   i.desc,
@@ -270,6 +272,7 @@ func (m *mainModel) getGists() error {
 		items := []list.Item{}
 		for _, doc := range fileDocs {
 			i := file{
+				id:        doc.Get("id").(string),
 				gistId:    doc.Get("gistId").(string),
 				title:     doc.Get("title").(string),
 				rawUrl:    doc.Get("rawUrl").(string),
@@ -339,11 +342,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.currentPane != PANE_EDITOR {
-				m.shutdown <- syscall.SIGTERM
-				return m, tea.Quit
-			}
 		case "ctrl+h":
 			m.previous()
 			return m, tea.Batch(m.updateActivePane(msg)...)
@@ -390,12 +388,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.fileList, cmd = m.fileList.Update(msg)
 				cmds = append(cmds, cmd)
-
 				// update editor content on file changes
 				cmd = m.loadSelectedFile()
 				cmds = append(cmds, cmd)
-
-				cmds = append(cmds, m.updateActivePane(msg)...)
+				return m, tea.Batch(cmds...)
 			case "enter", "ctrl+l":
 				m.next()
 				return m, func() tea.Msg {
