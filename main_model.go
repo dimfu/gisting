@@ -98,6 +98,15 @@ func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainMode
 	textEditor.ShowMessages(true)
 	textEditor.SetCursorBlinkMode(true)
 
+	// ensure the editor is initialized using the correct language from the selected first file
+	firstFile := m.gists[*firstgist][0]
+	f, ok := firstFile.(file)
+	if !ok {
+		panic(fmt.Sprintf("Cannot assert firstFile to type file, got %T", f))
+	}
+	alias := m.getEditorLanguage(f)
+	textEditor.SetLanguage(alias, "nord")
+
 	var defaultEditorTheme = editor.Theme{
 		NormalModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("255")),
 		InsertModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("26")).Foreground(lipgloss.Color("255")),
