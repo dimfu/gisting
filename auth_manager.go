@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"os"
 	"path"
 	"time"
@@ -31,6 +30,7 @@ func (a *authManager) init(clientId, clientSecret string) {
 		ClientID:     clientId,
 		ClientSecret: clientSecret,
 		Endpoint:     github.Endpoint,
+		Scopes:       []string{"gist"},
 	}
 	a.token = new(oauth2.Token)
 	// just need 1 buffered callback result channel because we immediately return after an error occurred
@@ -64,14 +64,15 @@ type authCodeMsg string
 
 func (a *authManager) authenticate() tea.Cmd {
 	return func() tea.Msg {
-		httpClient := &http.Client{Timeout: 10 * time.Second}
-		ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
 		if a.token != nil && a.token.AccessToken != "" {
-			client := gg.NewClient(a.config.Client(ctx, a.token))
+			ctx := context.Background()
+			tokenSource := a.config.TokenSource(ctx, a.token)
+			client := gg.NewClient(oauth2.NewClient(ctx, tokenSource))
 			user, _, err := client.Users.Get(ctx, "")
 			if user == nil {
 				return errMsg{err: err}
 			}
+
 			return authSuccessMsg{client}
 		}
 		return authCodeMsg(a.config.AuthCodeURL("state", oauth2.AccessTypeOffline))
@@ -85,13 +86,11 @@ func (a *authManager) waitForCallback() tea.Cmd {
 			if result.error != nil {
 				return errMsg{err: result.error}
 			}
-
-			httpClient := &http.Client{Timeout: 10 * time.Second}
-			ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
-			client := gg.NewClient(a.config.Client(ctx, a.token))
-
-			return authSuccessMsg{client: client}
-		case <-time.After(5 * time.Minute): // Timeout after 5 minutes
+			ctx := context.Background()
+			tokenSource := a.config.TokenSource(ctx, a.token)
+			client := gg.NewClient(oauth2.NewClient(ctx, tokenSource))
+			return authSuccessMsg{client}
+		case <-time.After(5 * time.Minute):
 			return errMsg{err: errors.New("Authentication timeout - no callback received")}
 		}
 	}
