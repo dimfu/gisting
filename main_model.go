@@ -36,8 +36,9 @@ const (
 type mainModel struct {
 	gists map[gist][]list.Item
 
-	keymap       Keymap
-	shutdown     chan os.Signal
+	keymap   Keymap
+	shutdown chan os.Signal
+
 	githubClient *github.Client
 
 	width  int

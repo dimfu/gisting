@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v74/github"
-	"golang.org/x/oauth2"
 )
 
 type authState int
@@ -39,8 +37,6 @@ type authSuccessMsg struct {
 
 func (m authModel) runAuthServer() tea.Cmd {
 	return func() tea.Msg {
-		httpClient := &http.Client{Timeout: 10 * time.Second}
-		ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
 		m.mux.Handle("/callback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var cbErr error
 			defer func() {
@@ -52,7 +48,7 @@ func (m authModel) runAuthServer() tea.Cmd {
 				http.Error(w, "Code not found", http.StatusBadRequest)
 				return
 			}
-			if err := auth.exchangeToken(ctx, code); err != nil {
+			if err := auth.exchangeToken(context.Background(), code); err != nil {
 				cbErr = err
 				http.Error(w, "Error while exchanging auth token "+err.Error(), http.StatusInternalServerError)
 			}

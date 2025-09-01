@@ -29,7 +29,8 @@ const (
 )
 
 type model struct {
-	client   *github.Client
+	client *github.Client
+
 	shutdown chan os.Signal
 
 	screenState screen
@@ -185,8 +186,58 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 
 // since github dont allow us to upload file one by one, upload all drafted files for a gist at once
 func (m *model) uploadGist() tea.Cmd {
-	return func() tea.Msg {
+	selectedItem := m.mainScreen.gistList.SelectedItem()
+	gistItem, ok := selectedItem.(gist)
+	if !ok {
+		logs = append(logs, fmt.Sprintf("Cannot assert gistItem to type gist, got %T", gistItem))
+	}
+
+	if gistItem.status == gist_status_published {
+		logs = append(logs, "Already published")
 		return nil
+	}
+
+	gist := github.Gist{
+		Files: make(map[github.GistFilename]github.GistFile),
+	}
+
+	for _, item := range m.mainScreen.fileList.Items() {
+		file, ok := item.(file)
+		if !ok {
+			logs = append(logs, fmt.Sprintf("Cannot assert file to type file, got %T", file))
+			return nil
+		}
+		gist.Files[github.GistFilename(file.title)] = github.GistFile{
+			Content: &file.content,
+		}
+	}
+
+	_, _, err := m.client.Gists.Create(context.Background(), &gist)
+	if err != nil {
+		logs = append(logs, fmt.Errorf("Could not create gist %q\n%w", gistItem.name, err))
+		return nil
+	}
+
+	err = storage.db.Delete(query.NewQuery(string(collectionDraftedGistContent)).Where(query.Field("gistId").Eq(gistItem.id)))
+	if err != nil {
+		logs = append(logs, fmt.Sprintf("Failed to delete all drafted gist files from draft collection\n%w", err))
+	}
+
+	err = storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(gistItem.id)))
+	if err != nil {
+		logs = append(logs, fmt.Sprintf("Failed to delete drafted gist from draft collection\n%w", err))
+	}
+
+	// delete the drafted gist inside the gists map
+	delete(m.mainScreen.gists, gistItem)
+
+	if err := m.mainScreen.getGists(); err != nil {
+		logs = append(logs, fmt.Sprintf("Cannot fetch gists from github\n%w", err))
+		return nil
+	}
+
+	return func() tea.Msg {
+		return rerenderMsg(true)
 	}
 }
 
@@ -272,6 +323,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			m.shutdown <- syscall.SIGTERM
 			return m, tea.Quit
+
+		case "ctrl+u":
+			cmd := m.uploadGist()
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
 		case "a":
 			// ignore dialog action if we're on uploaded files pane
 			if m.dialogState == dialog_pane_file {

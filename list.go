@@ -16,9 +16,9 @@ const (
 )
 
 type gist struct {
-	id     string
-	name   string
-	status gistStatus
+	id     string     `clover:"id"`
+	name   string     `clover:"name"`
+	status gistStatus `clover:"status"`
 }
 
 func (f gist) FilterValue() string {
@@ -62,10 +62,18 @@ func (d gistsDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	}
 	fmt.Fprint(w, "  ")
 	if index == m.Index() {
-		fmt.Fprint(w, d.styles.Selected.Render("→ "+f.name))
+		if f.status == gist_status_drafted {
+			fmt.Fprint(w, d.styles.Selected.Render("→ "+f.name+" (Draft)"))
+		} else {
+			fmt.Fprint(w, d.styles.Selected.Render("→ "+f.name))
+		}
 		return
 	}
-	fmt.Fprint(w, d.styles.Unselected.Render("  "+f.name))
+	if f.status == gist_status_drafted {
+		fmt.Fprint(w, d.styles.Unselected.Render("→ "+f.name+" (Draft)"))
+	} else {
+		fmt.Fprint(w, d.styles.Unselected.Render("→ "+f.name))
+	}
 }
 
 type filesDelegate struct {
