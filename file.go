@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ostafen/clover/v2/document"
 	"github.com/ostafen/clover/v2/query"
 )
 
@@ -18,8 +17,8 @@ type file struct {
 	rawUrl    string `clover:"rawUrl"`
 	updatedAt string `clover:"updatedAt"`
 	content   string `clover:"content"`
+	draft     bool   `clover:"draft"`
 	stale     bool
-	draft     bool
 }
 
 type files struct {
@@ -31,20 +30,27 @@ func (f file) Description() string { return f.desc }
 func (f file) FilterValue() string { return f.title }
 
 func (f file) getContent() (string, error) {
-	var content string
-	existing, err := storage.db.FindFirst(
-		query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(f.rawUrl)),
-	)
-	if err != nil {
-		logs = append(logs, fmt.Sprintf("Could not find file with url %s", f.rawUrl))
-		return "", err
-	}
-
 	if f.draft {
 		return f.content, nil
 	}
 
-	if f.stale || existing == nil {
+	existing, err := storage.db.FindFirst(
+		query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(f.rawUrl).And(query.Field("id").Eq(f.id))),
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	var shouldFetch bool
+	existingUA, _ := existing.Get("updatedAt").(string)
+	shouldFetch = f.updatedAt > existingUA
+
+	if _, ok := existing.Get("content").(string); !ok {
+		shouldFetch = true
+	}
+
+	if shouldFetch {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Get(f.rawUrl)
 		if err != nil {
@@ -58,30 +64,21 @@ func (f file) getContent() (string, error) {
 			logs = append(logs, err.Error())
 			return "", err
 		}
-		content = string(contentBytes)
 
-		if existing == nil {
-			existing = document.NewDocument()
-			existing.Set("rawUrl", f.rawUrl)
-		}
+		content := string(contentBytes)
 
-		existing.SetAll(map[string]any{
-			"title":     f.title,
-			"desc":      f.desc,
-			"rawUrl":    f.rawUrl,
-			"updatedAt": f.updatedAt,
-			"content":   content,
-		})
+		existing.Set("content", content)
 
 		if err := storage.db.Save(string(collectionGistContent), existing); err != nil {
 			logs = append(logs, err.Error())
 			return "", err
 		}
-	} else {
-		if val, ok := existing.Get("content").(string); ok {
-			content = val
-		}
-	}
 
-	return content, nil
+		return content, nil
+	} else {
+		if cachedContent, ok := existing.Get("content").(string); ok {
+			return cachedContent, nil
+		}
+		return "", fmt.Errorf("no cached content available")
+	}
 }

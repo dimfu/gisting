@@ -167,7 +167,7 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 	items = append(items, f)
 	m.mainScreen.gists[gist] = items
 
-	if err := storage.db.Insert(string(collectionDraftedGistContent), doc); err != nil {
+	if err := storage.db.Insert(string(collectionGistContent), doc); err != nil {
 		logs = append(logs, err)
 		return cmds
 	}
@@ -218,7 +218,7 @@ func (m *model) uploadGist() tea.Cmd {
 		return nil
 	}
 
-	err = storage.db.Delete(query.NewQuery(string(collectionDraftedGistContent)).Where(query.Field("gistId").Eq(gistItem.id)))
+	err = storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("gistId").Eq(gistItem.id)))
 	if err != nil {
 		logs = append(logs, fmt.Sprintf("Failed to delete all drafted gist files from draft collection\n%w", err))
 	}
@@ -259,22 +259,11 @@ func (m *model) deleteFile(g gist) error {
 			return fmt.Errorf("Could not delete gist file %q from Github\n%w", f.title, err)
 		}
 
-		err = storage.db.Delete(
-			query.NewQuery(string(collectionGistContent)).
-				Where(query.Field("id").Eq(f.id)),
-		)
-		if err != nil {
-			return fmt.Errorf("Could not delete file %q from collection\n", f.title)
-		}
-	} else {
-		// drafted file handling
-		err := storage.db.Delete(
-			query.NewQuery(collectionDraftedGistContent).
-				Where(query.Field("id").Eq(f.id)),
-		)
-		if err != nil {
-			return fmt.Errorf(`Could not delete drafted file "%s"\n`, f.title)
-		}
+	}
+
+	err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id)))
+	if err != nil {
+		return fmt.Errorf("Could not delete file %q from collection\n", f.title)
 	}
 
 	// remove deleted file & update the gist file list with the new one
@@ -329,6 +318,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		case "a":
+			// to enable other model to function properly i had to
+			// relay the msg to the main screen model if the dialog is disabled
+			if m.dialogState == dialog_disabled {
+				updatedMainScreen, cmd := m.mainScreen.Update(msg)
+				m.mainScreen = updatedMainScreen.(mainModel)
+				return m, cmd
+			}
 			// ignore dialog action if we're on uploaded files pane
 			if m.dialogState == dialog_pane_file {
 				selectedGist := m.mainScreen.gistList.SelectedItem()
@@ -362,7 +358,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 		case "d":
-			if m.dialogState == dialog_pane_file || m.dialogState == dialog_pane_gist {
+			if m.dialogState == dialog_opened {
+				updatedMainScreen, cmd := m.mainScreen.Update(msg)
+				m.mainScreen = updatedMainScreen.(mainModel)
+				return m, cmd
+			}
+			if m.dialogState != dialog_disabled {
 				reinit := m.reInitDialog(formDelete())
 				// change the dialog state to dialog_delete so that when we are submitting the dialog form
 				// we can proceed to using delete condition instead of create

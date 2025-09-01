@@ -39,7 +39,7 @@ type mainModel struct {
 	keymap   Keymap
 	shutdown chan os.Signal
 
-	githubClient *github.Client
+	client *github.Client
 
 	width  int
 	height int
@@ -57,17 +57,17 @@ type mainModel struct {
 	EditorStyle EditorBaseStyle
 }
 
-func newMainModel(shutdown chan os.Signal, githubClient *github.Client) mainModel {
+func newMainModel(shutdown chan os.Signal, client *github.Client) mainModel {
 	defaultStyle := DefaultStyles()
 	m := mainModel{
-		gists:        map[gist][]list.Item{},
-		githubClient: githubClient,
-		shutdown:     shutdown,
-		keymap:       DefaultKeymap,
-		help:         help.New(),
-		currentPane:  PANE_GISTS,
-		GistsStyle:   defaultStyle.Gists.Focused,
-		FilesStyle:   defaultStyle.Files.Blurred,
+		gists:       map[gist][]list.Item{},
+		client:      client,
+		shutdown:    shutdown,
+		keymap:      DefaultKeymap,
+		help:        help.New(),
+		currentPane: PANE_GISTS,
+		GistsStyle:  defaultStyle.Gists.Focused,
+		FilesStyle:  defaultStyle.Files.Blurred,
 	}
 
 	if err := m.getGists(); err != nil {
@@ -167,7 +167,7 @@ func (m mainModel) getEditorLanguage(f file) string {
 func (m *mainModel) getGists() error {
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
-	gists, _, err := m.githubClient.Gists.List(ctx, "", &github.GistListOptions{
+	gists, _, err := m.client.Gists.List(ctx, "", &github.GistListOptions{
 		ListOptions: github.ListOptions{
 			// TODO: should we handle per page pagination or not?
 			PerPage: 100,
@@ -176,28 +176,27 @@ func (m *mainModel) getGists() error {
 	if err != nil {
 		return err
 	}
-
 	publishedGistRawUrls := []string{}
 
 	// get the uploaded gists
 	for _, g := range gists {
 		items := []list.Item{}
 		for _, f := range g.GetFiles() {
+			existing, err := storage.db.FindFirst(
+				query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(f.GetRawURL()).And(query.Field("draft").Eq(false))),
+			)
+			if err != nil {
+				return fmt.Errorf("Error while finding gist content with raw url %s\n%v", f.GetRawURL(), err)
+			}
+
 			i := file{
 				id:        uuid.New().String(),
 				gistId:    g.GetID(),
 				title:     f.GetFilename(),
 				desc:      g.GetDescription(),
 				rawUrl:    f.GetRawURL(),
-				updatedAt: g.GetUpdatedAt().String(),
-				stale:     false,
-			}
-
-			existing, err := storage.db.FindFirst(
-				query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(i.rawUrl)),
-			)
-			if err != nil {
-				return fmt.Errorf("Error while finding gist content with raw url %s\n%v", i.rawUrl, err)
+				updatedAt: g.GetUpdatedAt().In(time.Local).String(),
+				draft:     false,
 			}
 
 			publishedGistRawUrls = append(publishedGistRawUrls, i.rawUrl)
@@ -205,31 +204,31 @@ func (m *mainModel) getGists() error {
 			if existing == nil {
 				doc := document.NewDocument()
 				doc.SetAll(map[string]any{
-					"id":     i.id,
-					"gistId": i.gistId,
-					"title":  i.title,
-					"desc":   i.desc,
-					"rawUrl": i.rawUrl,
+					"id":        i.id,
+					"gistId":    i.gistId,
+					"title":     i.title,
+					"desc":      i.desc,
+					"rawUrl":    i.rawUrl,
+					"updatedAt": i.updatedAt,
+					"draft":     i.draft,
 				})
-
-				id, err := storage.db.InsertOne(string(collectionGistContent), doc)
+				logs = append(logs, "add more shit because shit")
+				err := storage.db.Save(string(collectionGistContent), doc)
 				if err != nil {
 					return fmt.Errorf(`failed to insert gist "%s": %w`, g.GetDescription(), err)
 				}
-				doc.Set("_id", id)
 				existing = doc
-			}
-
-			// if existing data is unchanged (based on the date time) skip db operations since there is nothing to change
-			existingUA, _ := existing.Get("updatedAt").(string)
-			if existingUA >= i.updatedAt {
-				items = append(items, i)
-				continue
-			}
-			i.stale = true
-			existing.Set("updatedAt", i.updatedAt)
-			if err := storage.db.Save(string(collectionGistContent), existing); err != nil {
-				return fmt.Errorf(`failed to update gist "%s": %w`, g.GetDescription(), err)
+			} else {
+				i = file{
+					id:        existing.Get("id").(string),
+					gistId:    existing.Get("gistId").(string),
+					title:     existing.Get("title").(string),
+					desc:      existing.Get("desc").(string),
+					rawUrl:    existing.Get("rawUrl").(string),
+					updatedAt: existing.Get("updatedAt").(string),
+					draft:     existing.Get("draft").(bool),
+					content:   existing.Get("content").(string),
+				}
 			}
 
 			items = append(items, i)
@@ -242,15 +241,20 @@ func (m *mainModel) getGists() error {
 		m.gists[g] = items
 	}
 
-	// remove record that is no longer used after a rename if there's any
-	for _, gist := range gists {
-		for _, f := range gist.GetFiles() {
-			skip := slices.Contains(publishedGistRawUrls, f.GetRawURL())
-			if !skip {
-				err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(f.GetRawURL())))
-				if err != nil {
-					return fmt.Errorf(`failed to delete unused gist file collection from "%s": %w`, gist.GetDescription(), err)
-				}
+	existingRecords, err := storage.db.FindAll(
+		query.NewQuery(string(collectionGistContent)).Where(query.Field("draft").Eq(false)),
+	)
+	if err != nil {
+		return err
+	}
+
+	// when file are being updated it became unused, because the rawUrl changes every file update
+	for _, record := range existingRecords {
+		rawUrl := record.Get("rawUrl").(string)
+		if !slices.Contains(publishedGistRawUrls, rawUrl) {
+			err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(rawUrl)))
+			if err != nil {
+				return fmt.Errorf(`failed to delete orphaned gist file: %w`, err)
 			}
 		}
 	}
@@ -262,6 +266,7 @@ func (m *mainModel) getGists() error {
 	if err != nil {
 		return err
 	}
+
 	for _, doc := range draftedDocs {
 		statusInt := doc.Get("status").(int64)
 		gistId := doc.Get("id").(string)
@@ -270,15 +275,12 @@ func (m *mainModel) getGists() error {
 			name:   doc.Get("description").(string),
 			status: gistStatus(statusInt),
 		}
-
 		fileDocs, err := storage.db.FindAll(
-			query.NewQuery(string(collectionDraftedGistContent)).Where(query.Field("gistId").Eq(gistId)),
+			query.NewQuery(string(collectionGistContent)).Where(query.Field("gistId").Eq(gistId).And(query.Field("draft").Eq(true))),
 		)
-
 		if err != nil {
 			return err
 		}
-
 		items := []list.Item{}
 		for _, doc := range fileDocs {
 			i := file{
@@ -294,9 +296,91 @@ func (m *mainModel) getGists() error {
 			}
 			items = append(items, i)
 		}
-
 		m.gists[g] = items
 	}
+	return nil
+}
+
+func (m *mainModel) saveFileContent(content string) tea.Cmd {
+	selectedGist := m.gistList.SelectedItem()
+	if selectedGist == nil {
+		logs = append(logs, "Could not get the selected gist data")
+		return nil
+	}
+	g, ok := selectedGist.(gist)
+	if !ok {
+		logs = append(logs, fmt.Sprintf("Could not assert g to type gist, got %T", g))
+		return nil
+	}
+	selectedFile := m.fileList.SelectedItem()
+	if selectedFile == nil {
+		logs = append(logs, "Could not get the selected file data")
+		return nil
+	}
+	f, ok := selectedFile.(file)
+	if !ok {
+		logs = append(logs, fmt.Sprintf("Could not assert f to type file, got %T", f))
+		return nil
+	}
+
+	updates := make(map[string]interface{})
+	updates["content"] = content
+
+	updatedAt := f.updatedAt
+
+	if !f.draft {
+		gist := github.Gist{
+			Files: map[github.GistFilename]github.GistFile{
+				github.GistFilename(f.title): {
+					Content: &content,
+				},
+			},
+		}
+		updatedGist, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
+		if err != nil {
+			logs = append(logs, fmt.Sprintf("Could not update gist file %q from Github\n%w", f.title, err))
+			return nil
+		}
+		updatedAt = updatedGist.GetUpdatedAt().In(time.Local).String()
+
+		// update the rawUrl because it changes every update (learned it the hard way)
+		for _, file := range updatedGist.GetFiles() {
+			if file.GetFilename() == f.title {
+				updates["rawUrl"] = file.GetRawURL()
+				break
+			}
+		}
+
+		updates["updatedAt"] = updatedAt
+	} else {
+		updates["draft"] = true
+		updatedAt = time.Now().In(time.Local).String()
+		updates["updatedAt"] = updatedAt
+	}
+
+	q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id))
+	if err := storage.db.Update(q, updates); err != nil {
+		logs = append(logs, err.Error())
+		return nil
+	}
+
+	updatedFile := file{
+		id:        f.id,
+		gistId:    f.gistId,
+		title:     f.title,
+		desc:      f.desc,
+		rawUrl:    f.rawUrl,
+		content:   content,
+		updatedAt: updatedAt,
+		stale:     false,
+		draft:     f.draft && f.draft,
+	}
+
+	if f.draft {
+		updatedFile.draft = false
+	}
+
+	m.gists[g][m.fileList.Index()] = updatedFile
 
 	return nil
 }
@@ -337,10 +421,15 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rerenderMsg:
 		cmds = append(cmds, m.updateActivePane(msg)...)
 		return m, tea.Batch(cmds...)
+
 	case editor.SaveMsg:
 		if m.currentPane == PANE_EDITOR {
 			m.editor.Blur()
 			m.previous()
+
+			cmds = append(cmds, m.saveFileContent(string(msg)))
+			cmds = append(cmds, m.updateActivePane(msg)...)
+			return m, tea.Batch(cmds...)
 		}
 
 	case updateEditorContent:
@@ -467,6 +556,9 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Blurred
 		m.EditorStyle = DefaultStyles().Editor.Focused
+		cmds = append(cmds, func() tea.Msg {
+			return dialogStateChangeMsg(dialog_disabled)
+		})
 	}
 
 	m.fileList.Styles.TitleBar = m.FilesStyle.TitleBar

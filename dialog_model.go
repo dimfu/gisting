@@ -16,6 +16,7 @@ const (
 	dialog_pane_file
 	dialog_opened
 	dialog_delete
+	dialog_disabled
 )
 
 type dialogModel struct {
