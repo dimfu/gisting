@@ -213,10 +213,113 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 	return cmds
 }
 
-func (m *model) upload(pane pane) tea.Cmd {
-	return func() tea.Msg {
-		return rerenderMsg(true)
+func (m *model) upload(pane pane) []tea.Cmd {
+	var cmds []tea.Cmd
+	gItem := m.mainScreen.gistList.SelectedItem()
+	g, ok := gItem.(gist)
+	if !ok {
+		logs = append(logs, "Cannot assert gist to type gist, got %T", g)
+		return nil
 	}
+
+	switch pane {
+	// when upload key is pressed on gist pane, it should upload all draftd files at once
+	case PANE_GISTS:
+		gist := github.Gist{
+			Description: &g.name,
+			Files:       map[github.GistFilename]github.GistFile{},
+		}
+		files := []file{}
+		for _, item := range m.mainScreen.fileList.Items() {
+			file, ok := item.(file)
+			if !ok {
+				logs = append(logs, "Cannot assert file to type file, got %T", file)
+				return nil
+			}
+			gist.Files[github.GistFilename(file.title)] = github.GistFile{
+				Filename: &file.title,
+				Content:  &file.content,
+			}
+			files = append(files, file)
+		}
+
+		var response *github.Gist
+		if g.status == gist_status_drafted {
+			r, _, err := m.client.Gists.Create(context.Background(), &gist)
+			if err != nil {
+				logs = append(logs, fmt.Sprintf("Could not create gist\n%w", err))
+				return nil
+			}
+			response = r
+
+			err = storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(g.id)))
+			if err != nil {
+				logs = append(logs, fmt.Sprintf("Could not delete draft gist %q\n%w", g.name, err))
+				return nil
+			}
+		} else {
+			r, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
+			if err != nil {
+				logs = append(logs, fmt.Sprintf("Could not update gist files\n%w", err))
+				return nil
+			}
+			response = r
+		}
+
+		var newGistId string
+		for _, respFile := range response.GetFiles() {
+			for _, dbFile := range files {
+				if dbFile.title == respFile.GetFilename() {
+					q := query.NewQuery(string(collectionGistContent)).
+						Where(query.Field("id").Eq(dbFile.id))
+
+					newGistId = response.GetID()
+
+					update := map[string]any{
+						"gistId":    response.GetID(),
+						"content":   respFile.GetContent(),
+						"updatedAt": response.GetUpdatedAt().In(time.Local).String(),
+						"draft":     false,
+						"rawUrl":    respFile.GetRawURL(),
+					}
+
+					if err := storage.db.Update(q, update); err != nil {
+						logs = append(logs, fmt.Sprintf(
+							"Could not update gist file %q in the collection\n%v",
+							respFile.GetFilename(), err,
+						))
+						return cmds
+					}
+					break
+				}
+			}
+		}
+
+		if g.status == gist_status_drafted {
+			newGist := g
+			newGist.status = gist_status_published
+			newGist.id = newGistId
+
+			// move the previous gist file items to the new updated gist
+			m.mainScreen.gists[newGist] = m.mainScreen.gists[g]
+			logs = append(logs, m.mainScreen.gists[g])
+			delete(m.mainScreen.gists, g)
+
+			cmd := m.mainScreen.gistList.SetItem(m.mainScreen.gistList.Index(), newGist)
+			cmds = append(cmds, cmd)
+		}
+		break
+	case PANE_FILES:
+		break
+	default:
+		return cmds
+	}
+
+	cmds = append(cmds, func() tea.Msg {
+		return rerenderMsg(true)
+	})
+
+	return cmds
 }
 
 func (m *model) deleteFile(g gist) error {
@@ -292,8 +395,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "ctrl+u":
-			cmd := m.upload(m.mainScreen.currentPane)
-			cmds = append(cmds, cmd)
+			cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
 			return m, tea.Batch(cmds...)
 		case "a":
 			// to enable other model to function properly i had to
