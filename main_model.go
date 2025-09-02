@@ -212,7 +212,6 @@ func (m *mainModel) getGists() error {
 					"updatedAt": i.updatedAt,
 					"draft":     i.draft,
 				})
-				logs = append(logs, "add more shit because shit")
 				err := storage.db.Save(string(collectionGistContent), doc)
 				if err != nil {
 					return fmt.Errorf(`failed to insert gist "%s": %w`, g.GetDescription(), err)
@@ -253,6 +252,7 @@ func (m *mainModel) getGists() error {
 		rawUrl := record.Get("rawUrl").(string)
 		if !slices.Contains(publishedGistRawUrls, rawUrl) {
 			err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(rawUrl)))
+			logs = append(logs, record)
 			if err != nil {
 				return fmt.Errorf(`failed to delete orphaned gist file: %w`, err)
 			}
