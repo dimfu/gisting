@@ -353,9 +353,11 @@ func (m *mainModel) saveFileContent(content string) tea.Cmd {
 
 		updates["updatedAt"] = updatedAt
 	} else {
+		updates["rawUrl"] = ""
 		updates["draft"] = true
 		updatedAt = time.Now().In(time.Local).String()
 		updates["updatedAt"] = updatedAt
+		logs = append(logs, fmt.Sprintf("%q updated with id %q", f.title, f.id))
 	}
 
 	q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id))
@@ -382,7 +384,7 @@ func (m *mainModel) saveFileContent(content string) tea.Cmd {
 
 	m.gists[g][m.fileList.Index()] = updatedFile
 
-	return nil
+	return m.fileList.SetItem(m.fileList.Index(), updatedFile)
 }
 
 type updateEditorContent string

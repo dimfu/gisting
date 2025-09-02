@@ -39,7 +39,13 @@ func (f file) getContent() (string, error) {
 	)
 
 	if err != nil {
+		logs = append(logs, err)
 		return "", err
+	}
+
+	if existing == nil {
+		logs = append(logs, fmt.Errorf("Could not find %q with id %q and rawUrl %q", f.title, f.id, f.rawUrl))
+		return "", nil
 	}
 
 	var shouldFetch bool

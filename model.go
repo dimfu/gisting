@@ -149,7 +149,7 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 		desc:      "",
 		rawUrl:    "",
 		stale:     false,
-		updatedAt: time.Now().String(),
+		updatedAt: time.Now().In(time.Local).String(),
 		draft:     true,
 	}
 
@@ -221,9 +221,8 @@ func (m *model) upload(pane pane) []tea.Cmd {
 		logs = append(logs, "Cannot assert gist to type gist, got %T", g)
 		return nil
 	}
-
 	switch pane {
-	// when upload key is pressed on gist pane, it should upload all draftd files at once
+	// when upload key is pressed on gist pane, it should upload all drafted files at once
 	case PANE_GISTS:
 		gist := github.Gist{
 			Description: &g.name,
@@ -242,7 +241,6 @@ func (m *model) upload(pane pane) []tea.Cmd {
 			}
 			files = append(files, file)
 		}
-
 		var response *github.Gist
 		if g.status == gist_status_drafted {
 			r, _, err := m.client.Gists.Create(context.Background(), &gist)
@@ -251,7 +249,6 @@ func (m *model) upload(pane pane) []tea.Cmd {
 				return nil
 			}
 			response = r
-
 			err = storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(g.id)))
 			if err != nil {
 				logs = append(logs, fmt.Sprintf("Could not delete draft gist %q\n%w", g.name, err))
@@ -265,17 +262,15 @@ func (m *model) upload(pane pane) []tea.Cmd {
 			}
 			response = r
 		}
-
 		var newGistId string
 		for _, respFile := range response.GetFiles() {
-			for _, dbFile := range files {
+			for i, dbFile := range files {
 				if dbFile.title == respFile.GetFilename() {
 					q := query.NewQuery(string(collectionGistContent)).
 						Where(query.Field("id").Eq(dbFile.id))
-
 					newGistId = response.GetID()
-
-					update := map[string]any{
+					updates := map[string]any{
+						"id":        dbFile.id,
 						"gistId":    response.GetID(),
 						"content":   respFile.GetContent(),
 						"updatedAt": response.GetUpdatedAt().In(time.Local).String(),
@@ -283,7 +278,13 @@ func (m *model) upload(pane pane) []tea.Cmd {
 						"rawUrl":    respFile.GetRawURL(),
 					}
 
-					if err := storage.db.Update(q, update); err != nil {
+					files[i].gistId = updates["gistId"].(string)
+					files[i].content = updates["content"].(string)
+					files[i].updatedAt = updates["updatedAt"].(string)
+					files[i].draft = updates["draft"].(bool)
+					files[i].rawUrl = updates["rawUrl"].(string)
+
+					if err := storage.db.Update(q, updates); err != nil {
 						logs = append(logs, fmt.Sprintf(
 							"Could not update gist file %q in the collection\n%v",
 							respFile.GetFilename(), err,
@@ -295,30 +296,39 @@ func (m *model) upload(pane pane) []tea.Cmd {
 			}
 		}
 
+		updatedItems := make([]list.Item, len(files))
+		for idx, file := range files {
+			updatedItems[idx] = file
+		}
+
 		if g.status == gist_status_drafted {
 			newGist := g
 			newGist.status = gist_status_published
 			newGist.id = newGistId
 
-			// move the previous gist file items to the new updated gist
-			m.mainScreen.gists[newGist] = m.mainScreen.gists[g]
-			logs = append(logs, m.mainScreen.gists[g])
+			m.mainScreen.gists[newGist] = updatedItems
 			delete(m.mainScreen.gists, g)
 
 			cmd := m.mainScreen.gistList.SetItem(m.mainScreen.gistList.Index(), newGist)
 			cmds = append(cmds, cmd)
+			m.mainScreen.gistList.Select(m.mainScreen.gistList.Index())
+		} else {
+			m.mainScreen.gists[g] = updatedItems
 		}
+
+		// update the file list so that we have the latest data
+		cmd := m.mainScreen.fileList.SetItems(updatedItems)
+		cmds = append(cmds, cmd)
+
 		break
 	case PANE_FILES:
 		break
 	default:
 		return cmds
 	}
-
 	cmds = append(cmds, func() tea.Msg {
 		return rerenderMsg(true)
 	})
-
 	return cmds
 }
 
@@ -405,17 +415,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mainScreen = updatedMainScreen.(mainModel)
 				return m, cmd
 			}
-			// ignore dialog action if we're on uploaded files pane
-			// if m.dialogState == dialog_pane_file {
-			// 	selectedGist := m.mainScreen.gistList.SelectedItem()
-			// 	gist, ok := selectedGist.(gist)
-			// 	if !ok {
-			// 		return m, nil
-			// 	}
-			// 	if gist.status == gist_status_published {
-			// 		return m, nil
-			// 	}
-			// }
 
 			// handle "a" keystroke if dialog already open
 			if m.dialogState == dialog_opened {
