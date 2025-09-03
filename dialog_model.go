@@ -33,27 +33,37 @@ type dialogCreateSubmitMsg struct {
 	value    string
 }
 
-func formCreate(actionType string) *huh.Form {
+func (m *dialogModel) formCreate(actionType string) *huh.Form {
+	d := true
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewText().
 				Placeholder(fmt.Sprintf("Enter %s name", actionType)).Key("value").Lines(1).WithWidth(60),
 			huh.NewConfirm().
 				Affirmative("Create").
-				Negative("Cancel"),
+				Key("confirm").
+				Negative("Cancel").Value(&d),
 		),
 	)
 }
 
-func formDelete() *huh.Form {
-	return huh.NewForm(
+func (m *dialogModel) formDelete() *huh.Form {
+	form := huh.NewForm(
 		huh.NewGroup(
-			huh.NewConfirm().Title("Are you sure?").Affirmative("Create").Negative("Cancel"),
+			huh.NewConfirm().Title("Are you sure?").Affirmative("Confirm").Negative("Cancel").Key("confirm"),
 		),
 	)
+	return form
 }
 
-func newDialogModel(width, height int, state dialogState, client *github.Client, form *huh.Form) dialogModel {
+type formType int
+
+const (
+	form_type_create formType = iota
+	form_type_delete
+)
+
+func newDialogModel(width, height int, state dialogState, client *github.Client, formType formType) dialogModel {
 	m := dialogModel{
 		client: client,
 		width:  width,
@@ -61,9 +71,23 @@ func newDialogModel(width, height int, state dialogState, client *github.Client,
 		state:  state,
 	}
 
-	m.form = form
+	var actionType string
+	switch state {
+	case dialog_pane_gist:
+		actionType = "Gist"
+	case dialog_pane_file:
+		actionType = "File"
+	}
+
+	switch formType {
+	case form_type_create:
+		m.form = m.formCreate(actionType)
+	case form_type_delete:
+		m.form = m.formDelete()
+	}
 
 	m.form.WithShowHelp(false)
+
 	return m
 }
 
@@ -71,9 +95,12 @@ func (m dialogModel) Init() tea.Cmd {
 	return m.form.Init()
 }
 
+type dialogCancelled bool
+
 func (m dialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 	case tea.WindowSizeMsg:
@@ -81,6 +108,7 @@ func (m dialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 	}
+
 	form, cmd := m.form.Update(msg)
 	if f, ok := form.(*huh.Form); ok {
 		m.form = f
@@ -88,13 +116,20 @@ func (m dialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.form.State == huh.StateCompleted {
-		cmds = append(cmds, func() tea.Msg {
-			return dialogCreateSubmitMsg{
-				state: m.state,
-				value: m.form.GetString("value"),
-			}
-		})
-		// prevent the form firing up again thousands of time when submitting
+		isAffirm := m.form.GetBool("confirm")
+		if isAffirm {
+			cmds = append(cmds, func() tea.Msg {
+				return dialogCreateSubmitMsg{
+					state: m.state,
+					value: m.form.GetString("value"),
+				}
+			})
+		} else {
+			cmds = append(cmds, func() tea.Msg {
+				return dialogCancelled(true)
+			})
+		}
+		// prevent the form from firing again
 		m.form.State = huh.StateAborted
 	}
 

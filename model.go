@@ -61,7 +61,7 @@ func initialModel(shutdown chan os.Signal) model {
 				WriteTimeout: 10 * time.Second,
 			},
 		},
-		dialogScreen: newDialogModel(0, 0, dialog_pane_gist, nil, formCreate("File")),
+		dialogScreen: newDialogModel(0, 0, dialog_pane_gist, nil, form_type_create),
 		dialogState:  dialog_pane_gist,
 	}
 }
@@ -415,9 +415,8 @@ func (m *model) deleteFile(g gist) tea.Cmd {
 }
 
 // only use when the dialog initial render is janky
-func (m *model) reInitDialog(form *huh.Form) tea.Cmd {
-	m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState, m.client, form)
-	// change the mainscreen model to dialog model
+func (m *model) reInitDialog(formType formType) tea.Cmd {
+	m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState, m.client, formType)
 	m.screenState = dialogScreen
 	return m.dialogScreen.Init()
 }
@@ -474,13 +473,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 				return m, tea.Batch(cmds...)
 			} else {
-				var form *huh.Form
-				if m.dialogState == dialog_pane_gist {
-					form = formCreate("Gist")
-				} else if m.dialogState == dialog_pane_file {
-					form = formCreate("File")
-				}
-				reinit := m.reInitDialog(form)
+				reinit := m.reInitDialog(form_type_create)
 				m.dialogState = dialog_opened
 				cmds = append(cmds, reinit)
 				m.screenState = dialogScreen
@@ -497,7 +490,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			if m.dialogState != dialog_disabled {
-				reinit := m.reInitDialog(formDelete())
+				reinit := m.reInitDialog(form_type_delete)
 				// change the dialog state to dialog_delete so that when we are submitting the dialog form
 				// we can proceed to using delete condition instead of create
 				m.dialogState = dialog_delete
@@ -552,6 +545,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.createFile(msg.value, gist)...)
 			}
 		}
+		cmds = append(cmds, m.mainScreen.updateActivePane(msg)...)
+		m.screenState = mainScreen
+		return m, tea.Batch(cmds...)
+	case dialogCancelled:
 		cmds = append(cmds, m.mainScreen.updateActivePane(msg)...)
 		m.screenState = mainScreen
 		return m, tea.Batch(cmds...)
