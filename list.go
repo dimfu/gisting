@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/aquilax/truncate"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -60,20 +61,24 @@ func (d gistsDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	if !ok {
 		return
 	}
-	fmt.Fprint(w, "  ")
-	if index == m.Index() {
-		if f.status == gist_status_drafted {
-			fmt.Fprint(w, d.styles.Selected.Render("→ "+f.name+" (Draft)"))
-		} else {
-			fmt.Fprint(w, d.styles.Selected.Render("→ "+f.name))
-		}
-		return
-	}
+
+	var label string
+
 	if f.status == gist_status_drafted {
-		fmt.Fprint(w, d.styles.Unselected.Render("→ "+f.name+" (Draft)"))
+		// truncate *only* the name, then append (Draft)
+		truncated := truncate.Truncate(f.name, 25, "...", truncate.PositionEnd)
+		label = "→ " + truncated + " (Draft)"
 	} else {
-		fmt.Fprint(w, d.styles.Unselected.Render("→ "+f.name))
+		truncated := truncate.Truncate(f.name, 30, "...", truncate.PositionEnd)
+		label = "→ " + truncated
 	}
+
+	style := d.styles.Unselected
+	if index == m.Index() {
+		style = d.styles.Selected
+	}
+
+	fmt.Fprint(w, "  "+style.Render(label))
 }
 
 type filesDelegate struct {
