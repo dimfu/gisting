@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"sort"
@@ -106,12 +104,10 @@ func (m *model) createGist(name string) []tea.Cmd {
 	})
 
 	// update gistList with the new slice
-	cmd := m.mainScreen.gistList.SetItems(gistItems)
-	cmds = append(cmds, cmd)
-
+	gistCmd := m.mainScreen.gistList.SetItems(gistItems)
 	// create an empty file list for the newly created gist item
-	cmd = m.mainScreen.fileList.SetItems(emptyList)
-	cmds = append(cmds, cmd)
+	fileCmd := m.mainScreen.fileList.SetItems(emptyList)
+	editorCmd := m.mainScreen.loadSelectedFile()
 
 	// select the newly created gist item immediately in the gist list
 	for idx, item := range gistItems {
@@ -130,7 +126,7 @@ func (m *model) createGist(name string) []tea.Cmd {
 	rerender := func() tea.Msg {
 		return rerenderMsg(true)
 	}
-	cmds = append(cmds, rerender)
+	cmds = append(cmds, gistCmd, fileCmd, editorCmd, rerender)
 
 	return cmds
 }
@@ -168,8 +164,9 @@ func (m *model) deleteGist(g gist) []tea.Cmd {
 		}
 		cmd := m.mainScreen.fileList.SetItems(m.mainScreen.gists[selectedGist])
 		cmds = append(cmds, cmd)
-		cmds = append(cmds, m.mainScreen.loadSelectedFile())
 	}
+
+	cmds = append(cmds, m.mainScreen.loadSelectedFile())
 
 	cmds = append(cmds, func() tea.Msg {
 		return rerenderMsg(true)
@@ -196,8 +193,6 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 		draft:     true,
 	}
 
-	items := m.mainScreen.fileList.Items()
-
 	if gist.status == gist_status_published {
 		g := github.Gist{
 			Description: &gist.name,
@@ -215,13 +210,13 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 
 		for _, file := range response.Files {
 			if file.GetFilename() == f.title {
+				f.gistId = response.GetID()
 				f.rawUrl = file.GetRawURL()
 				f.updatedAt = response.GetUpdatedAt().In(time.Local).String()
+				f.draft = false
 				break
 			}
 		}
-
-		f.draft = false
 	}
 
 	doc := document.NewDocument()
@@ -241,17 +236,17 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 		return cmds
 	}
 
-	items = append(items, f)
-	m.mainScreen.gists[gist] = items
+	m.mainScreen.gists[gist] = append(m.mainScreen.gists[gist], f)
 
 	// update the file list with the new list
-	cmd := m.mainScreen.fileList.SetItems(items)
+	fileCmd := m.mainScreen.fileList.SetItems(m.mainScreen.gists[gist])
+	editorCmd := m.mainScreen.loadSelectedFile()
 
 	// trigger rerender
 	rerender := func() tea.Msg {
 		return rerenderMsg(true)
 	}
-	cmds = append(cmds, cmd, rerender)
+	cmds = append(cmds, fileCmd, editorCmd, rerender)
 
 	return cmds
 }
@@ -375,10 +370,11 @@ func (m *model) upload(pane pane) []tea.Cmd {
 	return cmds
 }
 
-func (m *model) deleteFile(g gist) error {
+func (m *model) deleteFile(g gist) tea.Cmd {
 	f, ok := m.mainScreen.fileList.SelectedItem().(file)
 	if !ok || f.gistId != g.id {
-		return errors.New("Cannot get the selected file")
+		log.Errorf("Cannot get the selected file")
+		return nil
 	}
 
 	// uploaded file handling
@@ -390,21 +386,32 @@ func (m *model) deleteFile(g gist) error {
 		}
 		_, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
 		if err != nil {
-			return fmt.Errorf("Could not delete gist file %q from Github\n%w", f.title, err)
+			log.Errorf("Could not delete gist file %q from Github\n%w", f.title, err)
+			return nil
 		}
 
 	}
 
 	err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id)))
 	if err != nil {
-		return fmt.Errorf("Could not delete file %q from collection\n", f.title)
+		log.Errorf("Could not delete file %q from collection\n", f.title)
+		return nil
 	}
 
 	// remove deleted file & update the gist file list with the new one
-	m.mainScreen.fileList.RemoveItem(m.mainScreen.fileList.Index())
+	idx := m.mainScreen.fileList.Index()
+	m.mainScreen.fileList.RemoveItem(idx)
 	m.mainScreen.gists[g] = m.mainScreen.fileList.Items()
 
-	return nil
+	// shift focus back to the previous deleted gist item
+	if len(m.mainScreen.fileList.Items()) > 0 {
+		if idx > 0 {
+			idx--
+		}
+		m.mainScreen.fileList.Select(idx)
+	}
+
+	return m.mainScreen.loadSelectedFile()
 }
 
 // only use when the dialog initial render is janky
@@ -540,9 +547,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			if m.dialogState == dialog_delete {
-				if err := m.deleteFile(gist); err != nil {
-					log.Panic(err)
-				}
+				cmds = append(cmds, m.deleteFile(gist))
 			} else {
 				cmds = append(cmds, m.createFile(msg.value, gist)...)
 			}

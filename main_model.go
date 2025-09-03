@@ -300,7 +300,7 @@ func (m *mainModel) getGists() error {
 	return nil
 }
 
-func (m *mainModel) saveFileContent(content string) tea.Cmd {
+func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 	selectedGist := m.gistList.SelectedItem()
 	if selectedGist == nil {
 		log.Error("Could not get the selected gist data")
@@ -322,10 +322,11 @@ func (m *mainModel) saveFileContent(content string) tea.Cmd {
 		return nil
 	}
 
-	updates := make(map[string]interface{})
-	updates["content"] = content
-
-	updatedAt := f.updatedAt
+	updates := map[string]interface{}{
+		"id":        f.id,
+		"content":   content,
+		"updatedAt": f.updatedAt,
+	}
 
 	if !f.draft {
 		gist := github.Gist{
@@ -340,57 +341,61 @@ func (m *mainModel) saveFileContent(content string) tea.Cmd {
 			log.Errorf("Could not update gist file %q from Github\n%w", f.title, err)
 			return nil
 		}
-		updatedAt = updatedGist.GetUpdatedAt().In(time.Local).String()
 
 		// update the rawUrl because it changes every update (learned it the hard way)
 		for _, file := range updatedGist.GetFiles() {
 			if file.GetFilename() == f.title {
 				updates["rawUrl"] = file.GetRawURL()
+				log.Printf("Old: %s -> New: %s", f.rawUrl, file.GetRawURL())
 				break
 			}
 		}
 
-		updates["updatedAt"] = updatedAt
+		updates["updatedAt"] = updatedGist.GetUpdatedAt().In(time.Local).String()
 	} else {
 		updates["rawUrl"] = ""
-		updates["draft"] = true
-		updatedAt = time.Now().In(time.Local).String()
-		updates["updatedAt"] = updatedAt
+		updates["updatedAt"] = time.Now().In(time.Local).String()
 	}
 
 	q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id))
 	if err := storage.db.Update(q, updates); err != nil {
-		log.Errorln(err.Error())
+		log.Errorf("Could not update gist content %q\n%w", f.title, err)
 		return nil
 	}
 
+	// update the file item with updated data
 	updatedFile := file{
 		id:        f.id,
 		gistId:    f.gistId,
 		title:     f.title,
 		desc:      f.desc,
-		rawUrl:    f.rawUrl,
+		rawUrl:    updates["rawUrl"].(string),
 		content:   content,
-		updatedAt: updatedAt,
+		updatedAt: updates["updatedAt"].(string),
 		stale:     false,
-		draft:     f.draft && f.draft,
+		draft:     f.draft,
 	}
 
-	if f.draft {
-		updatedFile.draft = false
-	}
+	var cmds []tea.Cmd
 
-	m.gists[g][m.fileList.Index()] = updatedFile
+	idx := m.fileList.Index()
+	m.gists[g][idx] = updatedFile
 
-	return m.fileList.SetItem(m.fileList.Index(), updatedFile)
+	cmds = append(cmds, m.fileList.SetItem(idx, updatedFile))
+	cmds = append(cmds, func() tea.Msg { return rerenderMsg(true) })
+
+	return cmds
 }
 
 type updateEditorContent string
 
 func (m *mainModel) loadSelectedFile() tea.Cmd {
 	li := m.fileList.SelectedItem()
+	// if there is no item inside gist item, render empty content instead
 	if li == nil {
-		return nil // no command
+		return func() tea.Msg {
+			return updateEditorContent("")
+		}
 	}
 
 	f, _ := li.(file)
@@ -427,7 +432,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editor.Blur()
 			m.previous()
 
-			cmds = append(cmds, m.saveFileContent(string(msg)))
+			cmds = append(cmds, m.saveFileContent(string(msg))...)
 			cmds = append(cmds, m.updateActivePane(msg)...)
 			return m, tea.Batch(cmds...)
 		}
