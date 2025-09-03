@@ -23,6 +23,16 @@ func setup(token *oauth2.Token) error {
 	return nil
 }
 
+func initLogger() (*os.File, error) {
+	f, err := os.OpenFile(path.Join(cfgPath, "gisting.log"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		return nil, err
+	}
+
+	log.SetOutput(f)
+	return f, nil
+}
+
 func initConfig(token *oauth2.Token) (string, error) {
 	userCfgPath, err := os.UserConfigDir()
 	if err != nil {

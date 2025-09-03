@@ -39,12 +39,12 @@ func (f file) getContent() (string, error) {
 	)
 
 	if err != nil {
-		logs = append(logs, err)
+		log.Errorln(err)
 		return "", err
 	}
 
 	if existing == nil {
-		logs = append(logs, fmt.Errorf("Could not find %q with id %q and rawUrl %q", f.title, f.id, f.rawUrl))
+		log.Errorf("Could not find %q with id %q and rawUrl %q\n", f.title, f.id, f.rawUrl)
 		return "", nil
 	}
 
@@ -60,14 +60,14 @@ func (f file) getContent() (string, error) {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Get(f.rawUrl)
 		if err != nil {
-			logs = append(logs, fmt.Sprintf("Could not fetch file with raw url: %s", f.rawUrl))
+			log.Errorf("Could not fetch file with raw url: %s", f.rawUrl)
 			return "", err
 		}
 		defer resp.Body.Close()
 
 		contentBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			logs = append(logs, err.Error())
+			log.Errorf(err.Error())
 			return "", err
 		}
 
@@ -76,7 +76,7 @@ func (f file) getContent() (string, error) {
 		existing.Set("content", content)
 
 		if err := storage.db.Save(string(collectionGistContent), existing); err != nil {
-			logs = append(logs, err.Error())
+			log.Errorf(err.Error())
 			return "", err
 		}
 

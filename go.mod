@@ -14,6 +14,7 @@ require (
 	github.com/google/uuid v1.1.2
 	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13
 	github.com/ostafen/clover/v2 v2.0.0-alpha.3
+	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/oauth2 v0.30.0
 )
 
@@ -66,7 +67,7 @@ require (
 	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect

@@ -2,18 +2,18 @@ package main
 
 import (
 	"flag"
-	"log"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sirupsen/logrus"
 )
 
 var (
 	// TODO: should put cfgPath inside config.json later
 	cfgPath string
+	log     = logrus.New()
 
 	auth    = new(authManager)
 	storage = new(store)
@@ -22,8 +22,6 @@ var (
 	clientSecret = flag.String("cs", "", "github client id")
 
 	drop = flag.Bool("drop", false, "drop collections at start up")
-
-	logs = []any{}
 )
 
 func init() {
@@ -43,6 +41,12 @@ func init() {
 
 func main() {
 	defer storage.db.Close()
+	f, err := initLogger()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer f.Close()
 
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
@@ -55,9 +59,4 @@ func main() {
 
 	<-shutdown
 	auth.close()
-
-	// think something smart than ts :skull:
-	for _, s := range logs {
-		log.Println(s)
-	}
 }

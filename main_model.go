@@ -252,7 +252,6 @@ func (m *mainModel) getGists() error {
 		rawUrl := record.Get("rawUrl").(string)
 		if !slices.Contains(publishedGistRawUrls, rawUrl) {
 			err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("rawUrl").Eq(rawUrl)))
-			logs = append(logs, record)
 			if err != nil {
 				return fmt.Errorf(`failed to delete orphaned gist file: %w`, err)
 			}
@@ -304,22 +303,22 @@ func (m *mainModel) getGists() error {
 func (m *mainModel) saveFileContent(content string) tea.Cmd {
 	selectedGist := m.gistList.SelectedItem()
 	if selectedGist == nil {
-		logs = append(logs, "Could not get the selected gist data")
+		log.Error("Could not get the selected gist data")
 		return nil
 	}
 	g, ok := selectedGist.(gist)
 	if !ok {
-		logs = append(logs, fmt.Sprintf("Could not assert g to type gist, got %T", g))
+		log.Errorf("Could not assert g to type gist, got %T", g)
 		return nil
 	}
 	selectedFile := m.fileList.SelectedItem()
 	if selectedFile == nil {
-		logs = append(logs, "Could not get the selected file data")
+		log.Errorln("Could not get the selected file data")
 		return nil
 	}
 	f, ok := selectedFile.(file)
 	if !ok {
-		logs = append(logs, fmt.Sprintf("Could not assert f to type file, got %T", f))
+		log.Errorf("Could not assert f to type file, got %T\n", f)
 		return nil
 	}
 
@@ -338,7 +337,7 @@ func (m *mainModel) saveFileContent(content string) tea.Cmd {
 		}
 		updatedGist, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
 		if err != nil {
-			logs = append(logs, fmt.Sprintf("Could not update gist file %q from Github\n%w", f.title, err))
+			log.Errorf("Could not update gist file %q from Github\n%w", f.title, err)
 			return nil
 		}
 		updatedAt = updatedGist.GetUpdatedAt().In(time.Local).String()
@@ -357,12 +356,11 @@ func (m *mainModel) saveFileContent(content string) tea.Cmd {
 		updates["draft"] = true
 		updatedAt = time.Now().In(time.Local).String()
 		updates["updatedAt"] = updatedAt
-		logs = append(logs, fmt.Sprintf("%q updated with id %q", f.title, f.id))
 	}
 
 	q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id))
 	if err := storage.db.Update(q, updates); err != nil {
-		logs = append(logs, err.Error())
+		log.Errorln(err.Error())
 		return nil
 	}
 

@@ -72,7 +72,7 @@ func (a *authManager) authenticate() tea.Cmd {
 			if user == nil {
 				return errMsg{err: err}
 			}
-
+			log.Info("Authenticated")
 			return authSuccessMsg{client}
 		}
 		return authCodeMsg(a.config.AuthCodeURL("state", oauth2.AccessTypeOffline))
