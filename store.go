@@ -14,14 +14,12 @@ type store struct {
 type collectionName string
 
 const (
-	collectionGists        collectionName = "gists"
 	collectionGistContent  collectionName = "gist_content_list"
 	collectionDraftedGists collectionName = "drafted_gists"
 )
 
 var (
 	collections = []collectionName{
-		collectionGists,
 		collectionGistContent,
 		collectionDraftedGists,
 	}

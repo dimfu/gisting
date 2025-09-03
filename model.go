@@ -135,6 +135,49 @@ func (m *model) createGist(name string) []tea.Cmd {
 	return cmds
 }
 
+func (m *model) deleteGist(g gist) []tea.Cmd {
+	var cmds []tea.Cmd
+	if g.status == gist_status_published {
+		_, err := m.client.Gists.Delete(context.Background(), g.id)
+		if err != nil {
+			log.Errorf("Could not delete gist:\n%w", err)
+			return nil
+		}
+	} else {
+		err := storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(g.id)))
+		if err != nil {
+			log.Errorf("Could not delete draft gist:\n%w", err)
+			return nil
+		}
+	}
+
+	idx := m.mainScreen.gistList.Index()
+	m.mainScreen.gistList.RemoveItem(idx)
+
+	if len(m.mainScreen.gistList.Items()) > 0 {
+		// shift focus back to the previous deleted gist item
+		if idx > 0 {
+			idx--
+		}
+		m.mainScreen.gistList.Select(idx)
+		gItem := m.mainScreen.gistList.SelectedItem()
+		selectedGist, ok := gItem.(gist)
+		if !ok {
+			log.Errorf("Could not assert selectedGist to type gist, got %T", selectedGist)
+			return nil
+		}
+		cmd := m.mainScreen.fileList.SetItems(m.mainScreen.gists[selectedGist])
+		cmds = append(cmds, cmd)
+		cmds = append(cmds, m.mainScreen.loadSelectedFile())
+	}
+
+	cmds = append(cmds, func() tea.Msg {
+		return rerenderMsg(true)
+	})
+
+	return cmds
+}
+
 // create gist and store it in drafted file collection
 func (m *model) createFile(title string, gist gist) []tea.Cmd {
 	var cmds []tea.Cmd
@@ -485,19 +528,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		selectedGist := m.mainScreen.gistList.SelectedItem()
 		gist, ok := selectedGist.(gist)
 		if !ok {
+			log.Error("Could not get selected gist on dialogCreateSubmitMsg")
 			return m, nil
 		}
 
 		if msg.state == dialog_pane_gist {
 			if m.dialogState == dialog_delete {
-				log.Info("Deleting Gist")
+				cmds = append(cmds, m.deleteGist(gist)...)
 			} else {
 				cmds = append(cmds, m.createGist(msg.value)...)
 			}
 		} else {
 			if m.dialogState == dialog_delete {
 				if err := m.deleteFile(gist); err != nil {
-					panic(err)
+					log.Panic(err)
 				}
 			} else {
 				cmds = append(cmds, m.createFile(msg.value, gist)...)
