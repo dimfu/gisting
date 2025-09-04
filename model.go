@@ -419,6 +419,108 @@ func (m *model) deleteFile(g gist) tea.Cmd {
 	return m.mainScreen.loadSelectedFile()
 }
 
+func (m *model) rename(pane pane, newValue string) []tea.Cmd {
+	var cmds []tea.Cmd
+	gItem := m.mainScreen.gistList.SelectedItem()
+	selectedGist, ok := gItem.(gist)
+	if !ok {
+		log.Errorf("Could not assert selectedGist to type gist, got %T", selectedGist)
+		return nil
+	}
+
+	gist := github.Gist{
+		Files: map[github.GistFilename]github.GistFile{},
+	}
+
+	var selectedFile file
+	if pane == PANE_GISTS {
+		gist.Description = &newValue
+	} else {
+		fItem := m.mainScreen.fileList.SelectedItem()
+		f, ok := fItem.(file)
+		if !ok {
+			log.Errorf("Could not assert f to type file, got %T", f)
+			return nil
+		}
+		selectedFile = f
+		gist.Files[github.GistFilename(selectedFile.title)] = github.GistFile{
+			Filename: &newValue,
+		}
+	}
+
+	var response *github.Gist
+	if selectedGist.status == gist_status_published {
+		r, _, err := m.client.Gists.Edit(context.Background(), selectedGist.id, &gist)
+		if err != nil {
+			log.Errorf("Error renaming gist with id %q\n%w", selectedGist.id, err)
+			return nil
+		}
+		response = r
+	}
+
+	if pane == PANE_GISTS {
+		prevGist := selectedGist
+		if selectedGist.status == gist_status_drafted {
+			q := query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(selectedGist.id))
+			updates := map[string]any{}
+			updates["description"] = newValue
+			if err := storage.db.Update(q, updates); err != nil {
+				log.Errorf("Could not update renamed gist file %q\n%w", newValue, err)
+				return nil
+			}
+			selectedGist.name = newValue
+		} else {
+			selectedGist.name = response.GetDescription()
+		}
+
+		idx := m.mainScreen.gistList.Index()
+		m.mainScreen.gistList.SetItem(idx, selectedGist)
+		files := m.mainScreen.gists[prevGist]
+		delete(m.mainScreen.gists, prevGist)
+		m.mainScreen.gists[selectedGist] = files
+
+		cmds = append(cmds, m.mainScreen.gistList.SetItem(idx, selectedGist))
+		cmds = append(cmds, m.mainScreen.fileList.SetItems(files))
+	} else {
+		q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(selectedFile.id))
+		updates := map[string]any{}
+		updates["title"] = newValue
+		selectedFile.title = newValue
+
+		if selectedGist.status == gist_status_published {
+			for _, file := range response.GetFiles() {
+				if file.GetFilename() == newValue {
+					updates["rawUrl"] = file.GetRawURL()
+					updates["updatedAt"] = response.GetUpdatedAt().In(time.Local).String()
+				}
+				break
+			}
+		}
+
+		if err := storage.db.Update(q, updates); err != nil {
+			log.Errorf("Could not update renamed gist file %q\n%w", newValue, err)
+			return nil
+		}
+
+		fileIdx := m.mainScreen.fileList.Index()
+		m.mainScreen.fileList.SetItem(fileIdx, selectedFile)
+
+		files := m.mainScreen.gists[selectedGist]
+		if fileIdx >= 0 && fileIdx < len(files) {
+			files[fileIdx] = selectedFile
+		}
+		m.mainScreen.gists[selectedGist] = files
+
+		cmds = append(cmds, m.mainScreen.fileList.SetItem(fileIdx, selectedFile))
+	}
+
+	cmds = append(cmds, func() tea.Msg {
+		return rerenderMsg(true)
+	})
+
+	return cmds
+}
+
 // prevent dialog from popping up when we press dialog key map by relaying current keystroke to the current dialog form instead
 func (m *model) allowDialogKeystroke(msg tea.Msg) tea.Cmd {
 	updated, cmd := m.dialogScreen.form.Update(msg)
@@ -584,15 +686,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				cmds = append(cmds, m.createFile(msg.value, gist)...)
 			}
+			break
 		case dialog_delete:
 			if pane == PANE_GISTS {
 				cmds = append(cmds, m.deleteGist(gist)...)
 			} else {
 				cmds = append(cmds, m.deleteFile(gist))
 			}
+			break
 		case dialog_rename:
+			cmds = append(cmds, m.rename(pane, msg.value)...)
+			break
 		default:
-			log.Errorf("Unrecognized state")
+			log.Errorf("Unrecognized dialog state %q\n", state)
 			return m, nil
 		}
 

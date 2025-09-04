@@ -545,12 +545,18 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.EditorStyle = DefaultStyles().Editor.Blurred
 		m.gistList, cmd = m.gistList.Update(msg)
 		cmds = append(cmds, cmd)
+		cmds = append(cmds, func() tea.Msg {
+			return dialogStateChangeMsg(dialog_closed)
+		})
 	case PANE_FILES:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Focused
 		m.EditorStyle = DefaultStyles().Editor.Blurred
 		m.fileList, cmd = m.fileList.Update(msg)
 		cmds = append(cmds, cmd)
+		cmds = append(cmds, func() tea.Msg {
+			return dialogStateChangeMsg(dialog_closed)
+		})
 	case PANE_EDITOR:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Blurred

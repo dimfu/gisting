@@ -36,12 +36,23 @@ type dialogSubmitMsg struct {
 
 func (m *dialogModel) formInput(actionType, value string) *huh.Form {
 	d := true
+	var affirmStr string
+
+	switch m.state {
+	case dialog_create:
+		affirmStr = "Create"
+	case dialog_rename:
+		affirmStr = "Rename"
+	default:
+		affirmStr = "Submit"
+	}
+
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Placeholder(fmt.Sprintf("Enter %s name", actionType)).Value(&value).Key("value").WithWidth(60),
 			huh.NewConfirm().
-				Affirmative("Create").
+				Affirmative(affirmStr).
 				Key("confirm").
 				Negative("Cancel").Value(&d),
 		),
