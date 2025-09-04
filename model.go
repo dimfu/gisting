@@ -262,7 +262,12 @@ func (m *model) upload(pane pane) []tea.Cmd {
 	switch pane {
 	// when upload key is pressed on gist pane, it should upload all drafted files at once
 	case PANE_GISTS:
+		// not planning to add public toggles for now. github only allows changing public status from secret to public
+		// and not the other way around, which makes toggling very awkward if I want to and always lost the revision history in the proccess
+		// because I had to recreate the original gist
+		public := true
 		gist := github.Gist{
+			Public:      &public,
 			Description: &g.name,
 			Files:       map[github.GistFilename]github.GistFile{},
 		}
