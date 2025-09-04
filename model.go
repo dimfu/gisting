@@ -61,8 +61,8 @@ func initialModel(shutdown chan os.Signal) model {
 				WriteTimeout: 10 * time.Second,
 			},
 		},
-		dialogScreen: newDialogModel(0, 0, dialog_pane_gist, nil, form_type_create),
-		dialogState:  dialog_pane_gist,
+		dialogScreen: newDialogModel(0, 0, dialog_closed, nil),
+		dialogState:  dialog_closed,
 	}
 }
 
@@ -419,9 +419,81 @@ func (m *model) deleteFile(g gist) tea.Cmd {
 	return m.mainScreen.loadSelectedFile()
 }
 
-// only use when the dialog initial render is janky
-func (m *model) reInitDialog(formType formType) tea.Cmd {
-	m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState, m.client, formType)
+// prevent dialog from popping up when we press dialog key map by relaying current keystroke to the current dialog form instead
+func (m *model) allowDialogKeystroke(msg tea.Msg) tea.Cmd {
+	updated, cmd := m.dialogScreen.form.Update(msg)
+	m.dialogScreen.form = updated.(*huh.Form)
+	return cmd
+}
+
+// prevent dialog from popping up by sending whatever msg we currently have to the main screen dialog
+func (m *model) disableDialogPopup(msg tea.Msg) tea.Cmd {
+	updatedMainScreen, cmd := m.mainScreen.Update(msg)
+	m.mainScreen = updatedMainScreen.(mainModel)
+	return cmd
+}
+
+func (m *model) closeDialog() {
+	m.dialogState = dialog_closed
+	m.screenState = mainScreen
+}
+
+func (m *model) reInitDialog(msg tea.Msg, formType formType) tea.Cmd {
+	if m.dialogState == dialog_opened {
+		return m.allowDialogKeystroke(msg)
+	} else if m.dialogState == dialog_disabled {
+		return m.disableDialogPopup(msg)
+	}
+
+	m.dialogScreen = newDialogModel(m.width, m.height, m.dialogState, m.client)
+
+	// change the dialog state to opened for the main model.go
+	m.dialogState = dialog_opened
+
+	var actionType string
+	switch m.mainScreen.currentPane {
+	case PANE_GISTS:
+		actionType = "Gist"
+	case PANE_FILES:
+		actionType = "File"
+	}
+
+	switch formType {
+	case form_type_create:
+		m.dialogScreen.state = dialog_create
+		m.dialogScreen.form = m.dialogScreen.formInput(actionType, "")
+	case form_type_rename:
+		m.dialogScreen.state = dialog_rename
+		var value string
+		switch m.mainScreen.currentPane {
+		case PANE_GISTS:
+			item := m.mainScreen.gistList.SelectedItem()
+			gist, ok := item.(gist)
+			if !ok {
+				log.Errorf("Could not assert gist to type gist, got %T", gist)
+				return nil
+			}
+			value = gist.name
+		case PANE_FILES:
+			item := m.mainScreen.fileList.SelectedItem()
+			file, ok := item.(file)
+			if !ok {
+				log.Errorf("Could not assert file to type file, got %T", file)
+				return nil
+			}
+			value = file.title
+		default:
+			return nil
+		}
+		m.dialogScreen.form = m.dialogScreen.formInput(actionType, value)
+	case form_type_delete:
+		m.dialogScreen.state = dialog_delete
+		m.dialogScreen.form = m.dialogScreen.formDelete()
+	}
+
+	m.dialogScreen.form.WithShowHelp(true)
+
+	// change the screen state to the dialog model
 	m.screenState = dialogScreen
 	return m.dialogScreen.Init()
 }
@@ -462,49 +534,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
 			return m, tea.Batch(cmds...)
 		case "a":
-			// to enable other model to function properly i had to
-			// relay the msg to the main screen model if the dialog is disabled
-			if m.dialogState == dialog_disabled {
-				updatedMainScreen, cmd := m.mainScreen.Update(msg)
-				m.mainScreen = updatedMainScreen.(mainModel)
-				return m, cmd
-			}
-
-			// handle "a" keystroke if dialog already open
-			if m.dialogState == dialog_opened {
-				var updated tea.Model
-				updated, cmd = m.dialogScreen.form.Update(msg)
-				m.dialogScreen.form = updated.(*huh.Form)
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			} else {
-				reinit := m.reInitDialog(form_type_create)
-				m.dialogState = dialog_opened
-				cmds = append(cmds, reinit)
-				m.screenState = dialogScreen
-				return m, tea.Batch(cmds...)
-			}
+			return m, m.reInitDialog(msg, form_type_create)
+		case "r":
+			return m, m.reInitDialog(msg, form_type_rename)
 		case "d":
-			if m.dialogState == dialog_opened {
-				var updated tea.Model
-				updated, cmd = m.dialogScreen.form.Update(msg)
-				m.dialogScreen.form = updated.(*huh.Form)
-				cmds = append(cmds, cmd)
-				updatedMainScreen, cmd := m.mainScreen.Update(msg)
-				m.mainScreen = updatedMainScreen.(mainModel)
-				return m, cmd
-			}
-			if m.dialogState != dialog_disabled {
-				reinit := m.reInitDialog(form_type_delete)
-				// change the dialog state to dialog_delete so that when we are submitting the dialog form
-				// we can proceed to using delete condition instead of create
-				m.dialogState = dialog_delete
-				cmds = append(cmds, reinit)
-				return m, tea.Batch(cmds...)
-			}
+			return m, m.reInitDialog(msg, form_type_delete)
 		case "esc":
 			if m.screenState == dialogScreen {
-				m.screenState = mainScreen
+				m.closeDialog()
 			}
 		}
 
@@ -529,7 +566,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialogStateChangeMsg:
 		m.dialogState = dialogState(msg)
 
-	case dialogCreateSubmitMsg:
+	case dialogSubmitMsg:
 		selectedGist := m.mainScreen.gistList.SelectedItem()
 		gist, ok := selectedGist.(gist)
 		if !ok {
@@ -537,25 +574,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if msg.state == dialog_pane_gist {
-			if m.dialogState == dialog_delete {
-				cmds = append(cmds, m.deleteGist(gist)...)
-			} else {
+		state := msg.state
+		pane := m.mainScreen.currentPane
+
+		switch state {
+		case dialog_create:
+			if pane == PANE_GISTS {
 				cmds = append(cmds, m.createGist(msg.value)...)
-			}
-		} else {
-			if m.dialogState == dialog_delete {
-				cmds = append(cmds, m.deleteFile(gist))
 			} else {
 				cmds = append(cmds, m.createFile(msg.value, gist)...)
 			}
+		case dialog_delete:
+			if pane == PANE_GISTS {
+				cmds = append(cmds, m.deleteGist(gist)...)
+			} else {
+				cmds = append(cmds, m.deleteFile(gist))
+			}
+		case dialog_rename:
+		default:
+			log.Errorf("Unrecognized state")
+			return m, nil
 		}
+
 		cmds = append(cmds, m.mainScreen.updateActivePane(msg)...)
-		m.screenState = mainScreen
+		m.closeDialog()
 		return m, tea.Batch(cmds...)
 	case dialogCancelled:
 		cmds = append(cmds, m.mainScreen.updateActivePane(msg)...)
-		m.screenState = mainScreen
+		m.closeDialog()
 		return m, tea.Batch(cmds...)
 
 	case rerenderMsg:

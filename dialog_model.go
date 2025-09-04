@@ -12,10 +12,11 @@ import (
 type dialogState int
 
 const (
-	dialog_pane_gist dialogState = iota
-	dialog_pane_file
-	dialog_opened
+	dialog_opened dialogState = iota
+	dialog_closed
 	dialog_delete
+	dialog_create
+	dialog_rename
 	dialog_disabled
 )
 
@@ -27,18 +28,18 @@ type dialogModel struct {
 	form   *huh.Form
 }
 
-type dialogCreateSubmitMsg struct {
+type dialogSubmitMsg struct {
 	state    dialogState
 	gistName string
 	value    string
 }
 
-func (m *dialogModel) formCreate(actionType string) *huh.Form {
+func (m *dialogModel) formInput(actionType, value string) *huh.Form {
 	d := true
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewText().
-				Placeholder(fmt.Sprintf("Enter %s name", actionType)).Key("value").Lines(1).WithWidth(60),
+			huh.NewInput().
+				Placeholder(fmt.Sprintf("Enter %s name", actionType)).Value(&value).Key("value").WithWidth(60),
 			huh.NewConfirm().
 				Affirmative("Create").
 				Key("confirm").
@@ -61,33 +62,16 @@ type formType int
 const (
 	form_type_create formType = iota
 	form_type_delete
+	form_type_rename
 )
 
-func newDialogModel(width, height int, state dialogState, client *github.Client, formType formType) dialogModel {
+func newDialogModel(width, height int, state dialogState, client *github.Client) dialogModel {
 	m := dialogModel{
 		client: client,
 		width:  width,
 		height: height,
 		state:  state,
 	}
-
-	var actionType string
-	switch state {
-	case dialog_pane_gist:
-		actionType = "Gist"
-	case dialog_pane_file:
-		actionType = "File"
-	}
-
-	switch formType {
-	case form_type_create:
-		m.form = m.formCreate(actionType)
-	case form_type_delete:
-		m.form = m.formDelete()
-	}
-
-	m.form.WithShowHelp(false)
-
 	return m
 }
 
@@ -119,7 +103,7 @@ func (m dialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		isAffirm := m.form.GetBool("confirm")
 		if isAffirm {
 			cmds = append(cmds, func() tea.Msg {
-				return dialogCreateSubmitMsg{
+				return dialogSubmitMsg{
 					state: m.state,
 					value: m.form.GetString("value"),
 				}
