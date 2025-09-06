@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -43,16 +42,15 @@ type model struct {
 	height int
 }
 
-func initialModel(shutdown chan os.Signal) model {
+func initialModel() model {
 	mux := http.NewServeMux()
+	authCtx, authCancel := context.WithCancel(context.Background())
 	return model{
 		client:      nil,
-		shutdown:    shutdown,
 		screenState: authScreen,
 		authScreen: authModel{
 			loadingSpinner: spinner.New(),
 			state:          auth_loading,
-			shutdown:       shutdown,
 			mux:            mux,
 			server: &http.Server{
 				Addr:         ":8080",
@@ -60,6 +58,8 @@ func initialModel(shutdown chan os.Signal) model {
 				ReadTimeout:  10 * time.Second,
 				WriteTimeout: 10 * time.Second,
 			},
+			authCtx:    authCtx,
+			authCancel: authCancel,
 		},
 		dialogScreen: newDialogModel(0, 0, dialog_closed, nil),
 		dialogState:  dialog_closed,
@@ -630,7 +630,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screenState == mainScreen || m.screenState == dialogScreen {
 			switch msg.String() {
 			case "ctrl+c":
-				m.shutdown <- syscall.SIGTERM
 				return m, tea.Quit
 			case "ctrl+u":
 				cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)

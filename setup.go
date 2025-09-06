@@ -53,6 +53,16 @@ func (c *config) set(name string, value any) error {
 	return nil
 }
 
+func (c *config) clearSecrets() error {
+	if err := c.set("ClientSecret", ""); err != nil {
+		return err
+	}
+	if err := c.set("ClientID", ""); err != nil {
+		return err
+	}
+	return nil
+}
+
 // initialize config folder to store the database and the app config itself
 func setup() error {
 	var err error

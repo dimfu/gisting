@@ -2,9 +2,6 @@ package main
 
 import (
 	"flag"
-	"os"
-	"os/signal"
-	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sirupsen/logrus"
@@ -38,15 +35,10 @@ func main() {
 	}
 	defer f.Close()
 
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
-
-	p := tea.NewProgram(initialModel(shutdown), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		log.Println(err)
-		shutdown <- syscall.SIGTERM
 	}
 
-	<-shutdown
 	auth.close()
 }

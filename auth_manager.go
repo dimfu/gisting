@@ -65,7 +65,7 @@ func (a *authManager) authenticate() tea.Cmd {
 	}
 }
 
-func (a *authManager) waitForCallback() tea.Cmd {
+func (a *authManager) waitForCallback(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
 		select {
 		case result := <-a.callbackChan:
@@ -77,7 +77,17 @@ func (a *authManager) waitForCallback() tea.Cmd {
 			client := gg.NewClient(oauth2.NewClient(ctx, tokenSource))
 			return authSuccessMsg{client}
 		case <-time.After(5 * time.Minute):
+			if err := cfg.clearSecrets(); err != nil {
+				log.Errorf("Could not clear Github user secret\n%w", err)
+				return nil
+			}
 			return errMsg{err: errors.New("Authentication timeout - no callback received")}
+		case <-ctx.Done():
+			if err := cfg.clearSecrets(); err != nil {
+				log.Errorf("Could not clear Github user secret\n%w", err)
+				return nil
+			}
+			return errMsg{err: errors.New("Authentication cancelled")}
 		}
 	}
 }

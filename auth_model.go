@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"syscall"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,7 +24,6 @@ const (
 type errMsg struct{ err error }
 
 type authModel struct {
-	shutdown       chan os.Signal
 	loadingSpinner spinner.Model
 	state          authState
 	authCodeUrl    authCodeMsg
@@ -35,6 +32,9 @@ type authModel struct {
 	form           *huh.Form
 	width          int
 	height         int
+
+	authCtx    context.Context
+	authCancel context.CancelFunc
 }
 
 type authSuccessMsg struct {
@@ -86,9 +86,7 @@ func (m authModel) Init() tea.Cmd {
 	if cfg.ClientID == "" || cfg.ClientSecret == "" {
 		return func() tea.Msg { return needSecretsMsg{} }
 	}
-
 	auth.token = &cfg.Token
-
 	return tea.Batch(m.loadingSpinner.Tick, m.runAuthServer(), auth.authenticate())
 }
 
@@ -124,7 +122,10 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			m.shutdown <- syscall.SIGTERM
+			if err := m.server.Shutdown(context.Background()); err != nil {
+				panic(err)
+			}
+			m.authCancel()
 			return m, tea.Quit
 		}
 		if m.state == auth_prompt_secrets && m.form != nil {
@@ -182,8 +183,9 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case authCodeMsg:
 		m.state = auth_wait_oauth
 		m.authCodeUrl = msg
-		return m, auth.waitForCallback()
+		return m, auth.waitForCallback(m.authCtx)
 	case errMsg:
+		log.Errorln(msg)
 		return m, nil
 	default:
 		if m.state == auth_prompt_secrets && m.form != nil {
