@@ -627,23 +627,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			m.shutdown <- syscall.SIGTERM
-			return m, tea.Quit
-
-		case "ctrl+u":
-			cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
-			return m, tea.Batch(cmds...)
-		case "a":
-			return m, m.reInitDialog(msg, form_type_create)
-		case "r":
-			return m, m.reInitDialog(msg, form_type_rename)
-		case "d":
-			return m, m.reInitDialog(msg, form_type_delete)
-		case "esc":
-			if m.screenState == dialogScreen {
-				m.closeDialog()
+		if m.screenState == mainScreen || m.screenState == dialogScreen {
+			switch msg.String() {
+			case "ctrl+c":
+				m.shutdown <- syscall.SIGTERM
+				return m, tea.Quit
+			case "ctrl+u":
+				cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
+				return m, tea.Batch(cmds...)
+			case "a":
+				return m, m.reInitDialog(msg, form_type_create)
+			case "r":
+				return m, m.reInitDialog(msg, form_type_rename)
+			case "d":
+				return m, m.reInitDialog(msg, form_type_delete)
+			case "esc":
+				if m.screenState == dialogScreen {
+					m.closeDialog()
+				}
 			}
 		}
 

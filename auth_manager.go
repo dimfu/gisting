@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -25,10 +22,10 @@ type authManager struct {
 	callbackChan chan authCallbackResult
 }
 
-func (a *authManager) init(clientId, clientSecret string) {
+func (a *authManager) init() {
 	a.config = oauth2.Config{
-		ClientID:     clientId,
-		ClientSecret: clientSecret,
+		ClientID:     "",
+		ClientSecret: "",
 		Endpoint:     github.Endpoint,
 		Scopes:       []string{"gist"},
 	}
@@ -47,24 +44,14 @@ func (a *authManager) exchangeToken(ctx context.Context, code string) error {
 
 	// replace old token with a new one
 	a.token = newTok
-
-	b, err := json.Marshal(newTok)
-	if err != nil {
-		return errors.New("Cannot json marshal new token")
-	}
-
-	if err := os.WriteFile(path.Join(cfgPath, "config.json"), b, 0644); err != nil {
-		return errors.New("Cannot write new token to config file")
-	}
-
-	return nil
+	return cfg.set("Token", *newTok)
 }
 
 type authCodeMsg string
 
 func (a *authManager) authenticate() tea.Cmd {
 	return func() tea.Msg {
-		if a.token != nil && a.token.AccessToken != "" {
+		if a.token.AccessToken != "" {
 			ctx := context.Background()
 			tokenSource := a.config.TokenSource(ctx, a.token)
 			client := gg.NewClient(oauth2.NewClient(ctx, tokenSource))

@@ -21,7 +21,6 @@ const (
 )
 
 type dialogModel struct {
-	client *github.Client
 	width  int
 	height int
 	state  dialogState
@@ -78,7 +77,6 @@ const (
 
 func newDialogModel(width, height int, state dialogState, client *github.Client) dialogModel {
 	m := dialogModel{
-		client: client,
 		width:  width,
 		height: height,
 		state:  state,

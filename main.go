@@ -11,30 +11,20 @@ import (
 )
 
 var (
-	// TODO: should put cfgPath inside config.json later
-	cfgPath string
-	log     = logrus.New()
+	cfg *config
+	log = logrus.New()
 
 	auth    = new(authManager)
 	storage = new(store)
-
-	clientId     = flag.String("cid", "", "github client id")
-	clientSecret = flag.String("cs", "", "github client id")
 
 	drop = flag.Bool("drop", false, "drop collections at start up")
 )
 
 func init() {
+	// initiate setup the database, config and auth manager
 	flag.Parse()
-	if *clientId == "" || *clientSecret == "" {
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	auth.init(*clientId, *clientSecret)
-
-	// initiate setup the database and the config file
-	if err := setup(auth.token); err != nil {
+	auth.init()
+	if err := setup(); err != nil {
 		panic(err)
 	}
 }
