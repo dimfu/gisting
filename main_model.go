@@ -226,7 +226,11 @@ func (m *mainModel) getGists() error {
 					rawUrl:    existing.Get("rawUrl").(string),
 					updatedAt: existing.Get("updatedAt").(string),
 					draft:     existing.Get("draft").(bool),
-					content:   existing.Get("content").(string),
+				}
+
+				// only get field content if they are not empty or else the program will be upset lol
+				if c, ok := existing.Get("content").(string); !ok {
+					i.content = c
 				}
 			}
 
