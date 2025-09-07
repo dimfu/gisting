@@ -30,12 +30,11 @@ func (f gist) FilterValue() string {
 }
 
 type gistsDelegate struct {
-	list.DefaultDelegate
 	styles GistsBaseStyle
 }
 
 func (d gistsDelegate) Height() int {
-	return 1
+	return 2
 }
 
 // Spacing is the number of lines to insert between folder items.
@@ -44,12 +43,12 @@ func (d gistsDelegate) Spacing() int {
 }
 
 func (d gistsDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
-	return d.DefaultDelegate.Update(msg, m)
+	return nil
 }
 
 func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
-	l := list.New(items, gistsDelegate{styles: styles}, 0, 0)
-	l.Title = "Gists                               "
+	l := list.New(items, gistsDelegate{styles: styles}, 45, 0)
+	l.Title = "Gists                               " // THIS I STILL DONT KNOW HOW TO FIX LOL
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
 	l.Styles.Title = styles.Title
@@ -88,24 +87,19 @@ func (d gistsDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 }
 
 type filesDelegate struct {
-	list.DefaultDelegate
 	styles FilesBaseStyle
 }
 
-// Height is the number of lines the snippet list item takes up.
 func (d filesDelegate) Height() int {
 	return 2
 }
 
-// Spacing is the number of lines to insert between list items.
 func (d filesDelegate) Spacing() int {
-	return 1
+	return 0
 }
 
-// Update is called when the list is updated.
-// We use this to update the snippet code view.
 func (d filesDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
-	return d.DefaultDelegate.Update(msg, m)
+	return nil
 }
 
 func (d filesDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
@@ -128,7 +122,7 @@ func (d filesDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 }
 
 func newFileList(items []list.Item, styles FilesBaseStyle) list.Model {
-	l := list.New(items, filesDelegate{styles: styles}, 0, 0)
+	l := list.New(items, filesDelegate{styles: styles}, 25, 0)
 	l.Title = "Files"
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)

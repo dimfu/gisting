@@ -472,21 +472,13 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.gistList, cmd = m.gistList.Update(msg)
 				cmds = append(cmds, cmd)
 				if selectedGist, ok := m.gistList.SelectedItem().(*gist); ok {
-					for gist, files := range m.gists {
+					for gist, _ := range m.gists {
 						if gist.id == selectedGist.id {
-							items := make([]list.Item, len(files))
-							for i, item := range files {
-								items[i] = item
-							}
-
-							cmd = m.fileList.SetItems(items)
 							m.fileList.Select(0)
-							cmds = append(cmds, cmd)
+							cmds = append(cmds, m.fileList.SetItems(m.gists[gist]))
+							cmds = append(cmds, m.loadSelectedFile())
 
-							// update editor content on gist changes by using the first selected item in list
-							cmd = m.loadSelectedFile()
-							cmds = append(cmds, cmd)
-
+							m.fileList.SetSize(20, m.height)
 							break
 						}
 					}
@@ -529,12 +521,12 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height - 1
 
 		gv, _ := m.GistsStyle.Base.GetFrameSize()
-		m.gistList.SetSize(m.width, m.height)
+		m.gistList.SetSize(45, m.height)
 
 		fv, _ := m.FilesStyle.Base.GetFrameSize()
-		m.fileList.SetSize(m.width, m.height)
+		m.fileList.SetSize(20, m.height)
 
-		m.editor.SetSize(m.width-fv-gv-67, m.height+1)
+		m.editor.SetSize(m.width-fv-gv, m.height+1)
 	default:
 	}
 
