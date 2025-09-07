@@ -92,14 +92,14 @@ func (m *model) createGist(name string) []tea.Cmd {
 		name:   name,
 		status: gist_status_drafted,
 	}
-	gistItems = append(gistItems, g)
+	gistItems = append(gistItems, &g)
 
 	// fill the app gists map with empty list for better user experience
-	m.mainScreen.gists[g] = emptyList
+	m.mainScreen.gists[&g] = emptyList
 
 	sort.Slice(gistItems, func(i, j int) bool {
-		a := gistItems[i].(gist)
-		b := gistItems[j].(gist)
+		a := gistItems[i].(*gist)
+		b := gistItems[j].(*gist)
 		return a.name < b.name
 	})
 
@@ -111,7 +111,7 @@ func (m *model) createGist(name string) []tea.Cmd {
 
 	// select the newly created gist item immediately in the gist list
 	for idx, item := range gistItems {
-		gist, ok := item.(gist)
+		gist, ok := item.(*gist)
 		if !ok {
 			log.Errorln("could not assert item to type gist")
 			return cmds
@@ -131,7 +131,7 @@ func (m *model) createGist(name string) []tea.Cmd {
 	return cmds
 }
 
-func (m *model) deleteGist(g gist) []tea.Cmd {
+func (m *model) deleteGist(g *gist) []tea.Cmd {
 	var cmds []tea.Cmd
 	if g.status == gist_status_published {
 		_, err := m.client.Gists.Delete(context.Background(), g.id)
@@ -157,7 +157,7 @@ func (m *model) deleteGist(g gist) []tea.Cmd {
 		}
 		m.mainScreen.gistList.Select(idx)
 		gItem := m.mainScreen.gistList.SelectedItem()
-		selectedGist, ok := gItem.(gist)
+		selectedGist, ok := gItem.(*gist)
 		if !ok {
 			log.Errorf("Could not assert selectedGist to type gist, got %T", selectedGist)
 			return nil
@@ -176,7 +176,7 @@ func (m *model) deleteGist(g gist) []tea.Cmd {
 }
 
 // create gist and store it in drafted file collection
-func (m *model) createFile(title string, gist gist) []tea.Cmd {
+func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 	var cmds []tea.Cmd
 
 	id := uuid.New().String()
@@ -254,7 +254,7 @@ func (m *model) createFile(title string, gist gist) []tea.Cmd {
 func (m *model) upload(pane pane) []tea.Cmd {
 	var cmds []tea.Cmd
 	gItem := m.mainScreen.gistList.SelectedItem()
-	g, ok := gItem.(gist)
+	g, ok := gItem.(*gist)
 	if !ok {
 		log.Errorf("Cannot assert gist to type gist, got %T\n", g)
 		return nil
@@ -375,7 +375,7 @@ func (m *model) upload(pane pane) []tea.Cmd {
 	return cmds
 }
 
-func (m *model) deleteFile(g gist) tea.Cmd {
+func (m *model) deleteFile(g *gist) tea.Cmd {
 	f, ok := m.mainScreen.fileList.SelectedItem().(file)
 	if !ok || f.gistId != g.id {
 		log.Errorf("Cannot get the selected file")
@@ -422,7 +422,7 @@ func (m *model) deleteFile(g gist) tea.Cmd {
 func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 	var cmds []tea.Cmd
 	gItem := m.mainScreen.gistList.SelectedItem()
-	selectedGist, ok := gItem.(gist)
+	selectedGist, ok := gItem.(*gist)
 	if !ok {
 		log.Errorf("Could not assert selectedGist to type gist, got %T", selectedGist)
 		return nil
@@ -570,7 +570,7 @@ func (m *model) reInitDialog(msg tea.Msg, formType formType) tea.Cmd {
 		switch m.mainScreen.currentPane {
 		case PANE_GISTS:
 			item := m.mainScreen.gistList.SelectedItem()
-			gist, ok := item.(gist)
+			gist, ok := item.(*gist)
 			if !ok {
 				log.Errorf("Could not assert gist to type gist, got %T", gist)
 				return nil
@@ -670,7 +670,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dialogSubmitMsg:
 		selectedGist := m.mainScreen.gistList.SelectedItem()
-		gist, ok := selectedGist.(gist)
+		gist, ok := selectedGist.(*gist)
 		if !ok {
 			log.Error("Could not get selected gist on dialogCreateSubmitMsg")
 			return m, nil

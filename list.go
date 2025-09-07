@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/aquilax/truncate"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dustin/go-humanize"
 )
 
 type gistStatus int64
@@ -17,9 +19,10 @@ const (
 )
 
 type gist struct {
-	id     string     `clover:"id"`
-	name   string     `clover:"name"`
-	status gistStatus `clover:"status"`
+	id        string     `clover:"id"`
+	name      string     `clover:"name"`
+	status    gistStatus `clover:"status"`
+	updatedAt time.Time
 }
 
 func (f gist) FilterValue() string {
@@ -37,11 +40,11 @@ func (d gistsDelegate) Height() int {
 
 // Spacing is the number of lines to insert between folder items.
 func (d gistsDelegate) Spacing() int {
-	return 0
+	return 1
 }
 
 func (d gistsDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
-	return nil
+	return d.DefaultDelegate.Update(msg, m)
 }
 
 func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
@@ -57,19 +60,19 @@ func newGistList(items []list.Item, styles GistsBaseStyle) list.Model {
 
 // Render renders a folder list item.
 func (d gistsDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	f, ok := item.(gist)
+	g, ok := item.(*gist)
 	if !ok {
 		return
 	}
 
 	var label string
 
-	if f.status == gist_status_drafted {
+	if g.status == gist_status_drafted {
 		// truncate *only* the name, then append (Draft)
-		truncated := truncate.Truncate(f.name, 25, "...", truncate.PositionEnd)
+		truncated := truncate.Truncate(g.name, 25, "...", truncate.PositionEnd)
 		label = "→ " + truncated + " (Draft)"
 	} else {
-		truncated := truncate.Truncate(f.name, 30, "...", truncate.PositionEnd)
+		truncated := truncate.Truncate(g.name, 30, "...", truncate.PositionEnd)
 		label = "→ " + truncated
 	}
 
@@ -78,7 +81,10 @@ func (d gistsDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		style = d.styles.Selected
 	}
 
-	fmt.Fprint(w, "  "+style.Render(label))
+	attribute := d.styles.Unselected
+	lastUpdated := fmt.Sprintf("Last updated: %s", humanize.Time(g.updatedAt))
+
+	fmt.Fprint(w, "  "+style.Render(label)+"\n    "+attribute.Render(lastUpdated))
 }
 
 type filesDelegate struct {

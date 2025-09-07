@@ -34,7 +34,7 @@ const (
 )
 
 type mainModel struct {
-	gists map[gist][]list.Item
+	gists map[*gist][]list.Item
 
 	keymap   Keymap
 	shutdown chan os.Signal
@@ -60,7 +60,7 @@ type mainModel struct {
 func newMainModel(shutdown chan os.Signal, client *github.Client) mainModel {
 	defaultStyle := DefaultStyles()
 	m := mainModel{
-		gists:       map[gist][]list.Item{},
+		gists:       map[*gist][]list.Item{},
 		client:      client,
 		shutdown:    shutdown,
 		keymap:      DefaultKeymap,
@@ -80,19 +80,19 @@ func newMainModel(shutdown chan os.Signal, client *github.Client) mainModel {
 
 	// sort gist alphabetically
 	sortedGists := slices.Collect(maps.Keys(m.gists))
-	slices.SortFunc(sortedGists, func(a, b gist) int {
+	slices.SortFunc(sortedGists, func(a, b *gist) int {
 		return strings.Compare(a.name, b.name)
 	})
 
 	for _, g := range sortedGists {
 		if firstgist == nil {
-			firstgist = &g
+			firstgist = g
 		}
-		gistList = append(gistList, gist{id: g.id, name: g.name, status: g.status})
+		gistList = append(gistList, g)
 	}
 
 	m.gistList = newGistList(gistList, m.GistsStyle)
-	m.fileList = newFileList(m.gists[*firstgist], m.FilesStyle)
+	m.fileList = newFileList(m.gists[firstgist], m.FilesStyle)
 
 	// dont care about the width and height because we set it inside the tea.WindowSizeMsg
 	textEditor := editor.New(0, 0)
@@ -100,7 +100,7 @@ func newMainModel(shutdown chan os.Signal, client *github.Client) mainModel {
 	textEditor.SetCursorBlinkMode(true)
 
 	// ensure the editor is initialized using the correct language from the selected first file
-	firstFile := m.gists[*firstgist][0]
+	firstFile := m.gists[firstgist][0]
 	f, ok := firstFile.(file)
 	if !ok {
 		panic(fmt.Sprintf("Cannot assert firstFile to type file, got %T", f))
@@ -237,11 +237,12 @@ func (m *mainModel) getGists() error {
 			items = append(items, i)
 		}
 		g := gist{
-			name:   g.GetDescription(),
-			id:     g.GetID(),
-			status: gist_status_published,
+			name:      g.GetDescription(),
+			id:        g.GetID(),
+			status:    gist_status_published,
+			updatedAt: g.GetUpdatedAt().Time.In(time.Local),
 		}
-		m.gists[g] = items
+		m.gists[&g] = items
 	}
 
 	existingRecords, err := storage.db.FindAll(
@@ -299,7 +300,7 @@ func (m *mainModel) getGists() error {
 			}
 			items = append(items, i)
 		}
-		m.gists[g] = items
+		m.gists[&g] = items
 	}
 	return nil
 }
@@ -310,9 +311,9 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 		log.Error("Could not get the selected gist data")
 		return nil
 	}
-	g, ok := selectedGist.(gist)
+	g, ok := selectedGist.(*gist)
 	if !ok {
-		log.Errorf("Could not assert g to type gist, got %T", g)
+		log.Errorf("Could not assert g to type *gist, got %T", g)
 		return nil
 	}
 	selectedFile := m.fileList.SelectedItem()
@@ -331,6 +332,8 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 		"content":   content,
 		"updatedAt": f.updatedAt,
 	}
+
+	var updateTime time.Time
 
 	if !f.draft {
 		gist := github.Gist{
@@ -354,11 +357,12 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 				break
 			}
 		}
-
-		updates["updatedAt"] = updatedGist.GetUpdatedAt().In(time.Local).String()
+		updateTime = updatedGist.GetUpdatedAt().In(time.Local)
+		updates["updatedAt"] = updateTime.String()
 	} else {
 		updates["rawUrl"] = ""
-		updates["updatedAt"] = time.Now().In(time.Local).String()
+		updateTime = time.Now().In(time.Local)
+		updates["updatedAt"] = updateTime.String()
 	}
 
 	q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id))
@@ -383,6 +387,7 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 	var cmds []tea.Cmd
 
 	idx := m.fileList.Index()
+	g.updatedAt = updateTime
 	m.gists[g][idx] = updatedFile
 
 	cmds = append(cmds, m.fileList.SetItem(idx, updatedFile))
@@ -466,7 +471,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.gistList, cmd = m.gistList.Update(msg)
 				cmds = append(cmds, cmd)
-				if selectedGist, ok := m.gistList.SelectedItem().(gist); ok {
+				if selectedGist, ok := m.gistList.SelectedItem().(*gist); ok {
 					for gist, files := range m.gists {
 						if gist.id == selectedGist.id {
 							items := make([]list.Item, len(files))
