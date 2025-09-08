@@ -107,7 +107,7 @@ func (m *model) createGist(name string) []tea.Cmd {
 	gistCmd := m.mainScreen.gistList.SetItems(gistItems)
 	// create an empty file list for the newly created gist item
 	fileCmd := m.mainScreen.fileList.SetItems(emptyList)
-	editorCmd := m.mainScreen.loadSelectedFile()
+	_, updateFileList := m.mainScreen.fileList.Update(nil)
 
 	// select the newly created gist item immediately in the gist list
 	for idx, item := range gistItems {
@@ -126,7 +126,7 @@ func (m *model) createGist(name string) []tea.Cmd {
 	rerender := func() tea.Msg {
 		return rerenderMsg(true)
 	}
-	cmds = append(cmds, gistCmd, fileCmd, editorCmd, rerender)
+	cmds = append(cmds, gistCmd, fileCmd, updateFileList, rerender)
 
 	return cmds
 }
@@ -164,9 +164,9 @@ func (m *model) deleteGist(g *gist) []tea.Cmd {
 		}
 		cmd := m.mainScreen.fileList.SetItems(m.mainScreen.gists[selectedGist])
 		cmds = append(cmds, cmd)
+		_, updateList := m.mainScreen.fileList.Update(nil)
+		cmds = append(cmds, updateList)
 	}
-
-	cmds = append(cmds, m.mainScreen.loadSelectedFile())
 
 	cmds = append(cmds, func() tea.Msg {
 		return rerenderMsg(true)
@@ -240,13 +240,13 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 
 	// update the file list with the new list
 	fileCmd := m.mainScreen.fileList.SetItems(m.mainScreen.gists[gist])
-	editorCmd := m.mainScreen.loadSelectedFile()
+	_, updateFileList := m.mainScreen.fileList.Update(nil)
 
 	// trigger rerender
 	rerender := func() tea.Msg {
 		return rerenderMsg(true)
 	}
-	cmds = append(cmds, fileCmd, editorCmd, rerender)
+	cmds = append(cmds, fileCmd, updateFileList, rerender)
 
 	return cmds
 }
@@ -259,116 +259,116 @@ func (m *model) upload(pane pane) []tea.Cmd {
 		log.Errorf("Cannot assert gist to type gist, got %T\n", g)
 		return nil
 	}
-	switch pane {
-	// when upload key is pressed on gist pane, it should upload all drafted files at once
-	case PANE_GISTS:
-		// not planning to add public toggles for now. github only allows changing public status from secret to public
-		// and not the other way around, which makes toggling very awkward if I want to and always lost the revision history in the proccess
-		// because I had to recreate the original gist
-		public := true
-		gist := github.Gist{
-			Public:      &public,
-			Description: &g.name,
-			Files:       map[github.GistFilename]github.GistFile{},
-		}
-		files := []file{}
-		for _, item := range m.mainScreen.fileList.Items() {
-			file, ok := item.(file)
-			if !ok {
-				log.Errorf("Cannot assert file to type file, got %T\n", file)
-				return nil
-			}
-			gist.Files[github.GistFilename(file.title)] = github.GistFile{
-				Filename: &file.title,
-				Content:  &file.content,
-			}
-			files = append(files, file)
-		}
-		var response *github.Gist
-		if g.status == gist_status_drafted {
-			r, _, err := m.client.Gists.Create(context.Background(), &gist)
-			if err != nil {
-				log.Errorf("Could not create gist\n%w", err)
-				return nil
-			}
-			response = r
-			err = storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(g.id)))
-			if err != nil {
-				log.Errorf("Could not delete draft gist %q\n%w", g.name, err)
-				return nil
-			}
-		} else {
-			r, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
-			if err != nil {
-				log.Errorf("Could not update gist files\n%w", err)
-				return nil
-			}
-			response = r
-		}
-		var newGistId string
-		for _, respFile := range response.GetFiles() {
-			for i, dbFile := range files {
-				if dbFile.title == respFile.GetFilename() {
-					q := query.NewQuery(string(collectionGistContent)).
-						Where(query.Field("id").Eq(dbFile.id))
-					newGistId = response.GetID()
-					updates := map[string]any{
-						"id":        dbFile.id,
-						"gistId":    response.GetID(),
-						"content":   respFile.GetContent(),
-						"updatedAt": response.GetUpdatedAt().In(time.Local).String(),
-						"draft":     false,
-						"rawUrl":    respFile.GetRawURL(),
-					}
 
-					files[i].gistId = updates["gistId"].(string)
-					files[i].content = updates["content"].(string)
-					files[i].updatedAt = updates["updatedAt"].(string)
-					files[i].draft = updates["draft"].(bool)
-					files[i].rawUrl = updates["rawUrl"].(string)
-
-					if err := storage.db.Update(q, updates); err != nil {
-						log.Errorf(
-							"Could not update gist file %q in the collection\n%v",
-							respFile.GetFilename(), err,
-						)
-						return cmds
-					}
-					break
-				}
-			}
-		}
-
-		updatedItems := make([]list.Item, len(files))
-		for idx, file := range files {
-			updatedItems[idx] = file
-		}
-
-		if g.status == gist_status_drafted {
-			newGist := g
-			newGist.status = gist_status_published
-			newGist.id = newGistId
-
-			m.mainScreen.gists[newGist] = updatedItems
-			delete(m.mainScreen.gists, g)
-
-			cmd := m.mainScreen.gistList.SetItem(m.mainScreen.gistList.Index(), newGist)
-			cmds = append(cmds, cmd)
-			m.mainScreen.gistList.Select(m.mainScreen.gistList.Index())
-		} else {
-			m.mainScreen.gists[g] = updatedItems
-		}
-
-		// update the file list so that we have the latest data
-		cmd := m.mainScreen.fileList.SetItems(updatedItems)
-		cmds = append(cmds, cmd)
-
-		break
-	case PANE_FILES:
-		break
-	default:
+	if pane == PANE_FILES {
 		return cmds
 	}
+
+	// not planning to add public toggles for now. github only allows changing public status from secret to public
+	// and not the other way around, which makes toggling very awkward if I want to and always lost the revision history in the proccess
+	// because I had to recreate the original gist
+	public := true
+	gist := github.Gist{
+		Public:      &public,
+		Description: &g.name,
+		Files:       map[github.GistFilename]github.GistFile{},
+	}
+	files := []file{}
+	for _, item := range m.mainScreen.fileList.Items() {
+		file, ok := item.(file)
+		if !ok {
+			log.Errorf("Cannot assert file to type file, got %T\n", file)
+			return nil
+		}
+		gist.Files[github.GistFilename(file.title)] = github.GistFile{
+			Filename: &file.title,
+			Content:  &file.content,
+		}
+		files = append(files, file)
+	}
+	var response *github.Gist
+	if g.status == gist_status_drafted {
+		r, _, err := m.client.Gists.Create(context.Background(), &gist)
+		if err != nil {
+			log.Errorf("Could not create gist\n%w", err)
+			return nil
+		}
+		response = r
+		err = storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(g.id)))
+		if err != nil {
+			log.Errorf("Could not delete draft gist %q\n%w", g.name, err)
+			return nil
+		}
+	} else {
+		r, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
+		if err != nil {
+			log.Errorf("Could not update gist files\n%w", err)
+			return nil
+		}
+		response = r
+	}
+	var (
+		newGistId    string
+		newUpdatedAt time.Time
+	)
+	for _, respFile := range response.GetFiles() {
+		for i, dbFile := range files {
+			if dbFile.title == respFile.GetFilename() {
+				q := query.NewQuery(string(collectionGistContent)).
+					Where(query.Field("id").Eq(dbFile.id))
+				newGistId = response.GetID()
+				newUpdatedAt = response.GetUpdatedAt().In(time.Local)
+				updates := map[string]any{
+					"id":        dbFile.id,
+					"gistId":    response.GetID(),
+					"content":   respFile.GetContent(),
+					"updatedAt": newUpdatedAt.String(),
+					"draft":     false,
+					"rawUrl":    respFile.GetRawURL(),
+				}
+
+				files[i].gistId = updates["gistId"].(string)
+				files[i].content = updates["content"].(string)
+				files[i].updatedAt = updates["updatedAt"].(string)
+				files[i].draft = updates["draft"].(bool)
+				files[i].rawUrl = updates["rawUrl"].(string)
+
+				if err := storage.db.Update(q, updates); err != nil {
+					log.Errorf(
+						"Could not update gist file %q in the collection\n%v",
+						respFile.GetFilename(), err,
+					)
+					return cmds
+				}
+				break
+			}
+		}
+	}
+
+	updatedItems := make([]list.Item, len(files))
+	for idx, file := range files {
+		updatedItems[idx] = file
+	}
+
+	if g.status == gist_status_drafted {
+		g.status = gist_status_published
+		g.id = newGistId
+		g.updatedAt = newUpdatedAt
+
+		m.mainScreen.gists[g] = updatedItems
+		cmd := m.mainScreen.gistList.SetItem(m.mainScreen.gistList.Index(), g)
+		cmds = append(cmds, cmd)
+		m.mainScreen.gistList.Select(m.mainScreen.gistList.Index())
+	} else {
+		m.mainScreen.gists[g] = updatedItems
+	}
+
+	// update the file list so that we have the latest data
+	cmd := m.mainScreen.fileList.SetItems(updatedItems)
+	cmds = append(cmds, cmd)
+	_, updatedFileList := m.mainScreen.fileList.Update(nil)
+	cmds = append(cmds, updatedFileList)
+
 	cmds = append(cmds, func() tea.Msg {
 		return rerenderMsg(true)
 	})
@@ -416,7 +416,8 @@ func (m *model) deleteFile(g *gist) tea.Cmd {
 		m.mainScreen.fileList.Select(idx)
 	}
 
-	return m.mainScreen.loadSelectedFile()
+	_, cmd := m.mainScreen.fileList.Update(nil)
+	return cmd
 }
 
 func (m *model) rename(pane pane, newValue string) []tea.Cmd {
@@ -459,7 +460,6 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 	}
 
 	if pane == PANE_GISTS {
-		prevGist := selectedGist
 		if selectedGist.status == gist_status_drafted {
 			q := query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(selectedGist.id))
 			updates := map[string]any{}
@@ -475,12 +475,8 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 
 		idx := m.mainScreen.gistList.Index()
 		m.mainScreen.gistList.SetItem(idx, selectedGist)
-		files := m.mainScreen.gists[prevGist]
-		delete(m.mainScreen.gists, prevGist)
-		m.mainScreen.gists[selectedGist] = files
 
 		cmds = append(cmds, m.mainScreen.gistList.SetItem(idx, selectedGist))
-		cmds = append(cmds, m.mainScreen.fileList.SetItems(files))
 	} else {
 		q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(selectedFile.id))
 		updates := map[string]any{}

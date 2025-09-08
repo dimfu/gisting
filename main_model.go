@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -105,8 +104,6 @@ func newMainModel(shutdown chan os.Signal, client *github.Client) mainModel {
 	if !ok {
 		panic(fmt.Sprintf("Cannot assert firstFile to type file, got %T", f))
 	}
-	alias := m.getEditorLanguage(f)
-	textEditor.SetLanguage(alias, "nord")
 
 	var defaultEditorTheme = editor.Theme{
 		NormalModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("255")),
@@ -140,28 +137,6 @@ func (m *mainModel) previous() {
 	if m.currentPane < 0 {
 		m.currentPane = MAX_PANE - 1
 	}
-}
-
-func (m mainModel) getEditorLanguage(f file) string {
-	// get the language alias from the title first
-	lexer := lexers.Match(f.title)
-	// if no extension exist, analyze the content itself
-	if lexer == nil {
-		lexer = lexers.Analyse(f.content)
-	}
-	// fallback to whatever the lexer wants (i dont give a shit)
-	if lexer == nil {
-		lexer = lexers.Fallback
-	}
-
-	langName := lexer.Config().Name
-	var alias string
-	if len(lexer.Config().Aliases) > 0 {
-		alias = lexer.Config().Aliases[0]
-	} else {
-		alias = langName
-	}
-	return alias
 }
 
 func (m *mainModel) getGists() error {
@@ -396,35 +371,14 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 	return cmds
 }
 
-type updateEditorContent string
-
-func (m *mainModel) loadSelectedFile() tea.Cmd {
-	li := m.fileList.SelectedItem()
-	// if there is no item inside gist item, render empty content instead
-	if li == nil {
-		return func() tea.Msg {
-			return updateEditorContent("")
-		}
-	}
-
-	f, _ := li.(file)
-	content, err := f.getContent()
-	if err != nil {
-		return func() tea.Msg {
-			return errMsg{err: err}
-		}
-	}
-
-	alias := m.getEditorLanguage(f)
-	m.editor.SetLanguage(alias, "nord")
-
-	return func() tea.Msg {
-		return updateEditorContent(content)
-	}
+type updateEditorContent struct {
+	content  string
+	language string
 }
 
 func (m mainModel) Init() tea.Cmd {
-	return tea.Batch(m.loadSelectedFile(), m.editor.CursorBlink())
+	_, initFileList := m.fileList.Update(nil)
+	return tea.Batch(initFileList, m.editor.CursorBlink())
 }
 
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -447,7 +401,8 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case updateEditorContent:
-		m.editor.SetContent(string(msg))
+		m.editor.SetContent(string(msg.content))
+		m.editor.SetLanguage(msg.language, "nord")
 		editorModel, cmd := m.editor.Update(msg)
 		cmds = append(cmds, cmd)
 		m.editor = editorModel.(editor.Model)
@@ -476,9 +431,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if gist.id == selectedGist.id {
 							m.fileList.Select(0)
 							cmds = append(cmds, m.fileList.SetItems(m.gists[gist]))
-							cmds = append(cmds, m.loadSelectedFile())
-
 							m.fileList.SetSize(20, m.height)
+							_, updateFileList := m.fileList.Update(nil)
+							cmds = append(cmds, updateFileList)
 							break
 						}
 					}
@@ -494,9 +449,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.fileList, cmd = m.fileList.Update(msg)
 				cmds = append(cmds, cmd)
 				// update editor content on file changes
-				cmd = m.loadSelectedFile()
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
 			case "enter", "ctrl+l":
 				m.next()
 				return m, func() tea.Msg {
@@ -553,8 +505,6 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Focused
 		m.EditorStyle = DefaultStyles().Editor.Blurred
-		m.fileList, cmd = m.fileList.Update(msg)
-		cmds = append(cmds, cmd)
 		cmds = append(cmds, func() tea.Msg {
 			return dialogStateChangeMsg(dialog_closed)
 		})
