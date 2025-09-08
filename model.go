@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"sort"
@@ -71,6 +72,10 @@ type rerenderMsg bool
 // create gist and store it in drafted gist collection
 func (m *model) createGist(name string) []tea.Cmd {
 	var cmds []tea.Cmd
+
+	if name == "" {
+		name = time.Now().String()
+	}
 
 	doc := document.NewDocument()
 	id := uuid.New().String()
@@ -191,6 +196,21 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 		stale:     false,
 		updatedAt: time.Now().In(time.Local).String(),
 		draft:     true,
+	}
+
+	if title == "" {
+		f.title = time.Now().String()
+	}
+
+	gistFiles := m.mainScreen.gists[gist]
+	for _, item := range gistFiles {
+		file, _ := item.(file)
+		if file.title == title {
+			cmds = append(cmds, func() tea.Msg {
+				return errMsg{err: errors.New("Filename should be unique")}
+			})
+			return cmds
+		}
 	}
 
 	if gist.status == gist_status_published {
@@ -627,7 +647,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
-			case "ctrl+u":
+			case "u":
 				cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
 				return m, tea.Batch(cmds...)
 			case "a":
@@ -642,6 +662,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
+	case errMsg:
+		log.Errorln(msg.err.Error())
+		return m, nil
 
 	case authSuccessMsg:
 		m.client = msg.client

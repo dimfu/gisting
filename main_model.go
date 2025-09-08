@@ -381,6 +381,16 @@ func (m mainModel) Init() tea.Cmd {
 	return tea.Batch(initFileList, m.editor.CursorBlink())
 }
 
+func (m *mainModel) resetListHeight() {
+	if m.help.ShowAll {
+		m.gistList.SetSize(45, m.height-2)
+		m.fileList.SetSize(45, m.height-2)
+	} else {
+		m.gistList.SetSize(45, m.height)
+		m.fileList.SetSize(45, m.height)
+	}
+}
+
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
@@ -410,14 +420,15 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "?":
+			m.help.ShowAll = !m.help.ShowAll
+			m.resetListHeight()
 		case "ctrl+h":
 			m.previous()
 			return m, tea.Batch(m.updateActivePane(msg)...)
-		case "ctrl+l":
-			if m.currentPane != PANE_FILES {
-				m.next()
-				return m, tea.Batch(m.updateActivePane(msg)...)
-			}
+		case "ctrl+l", "tab":
+			m.next()
+			return m, tea.Batch(m.updateActivePane(msg)...)
 		}
 
 		switch m.currentPane {
@@ -468,6 +479,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.updateActivePane(msg)...)
 		}
 
+	case errMsg:
+		log.Errorln(msg.err.Error())
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height - 1
@@ -477,6 +492,8 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		fv, _ := m.FilesStyle.Base.GetFrameSize()
 		m.fileList.SetSize(20, m.height)
+
+		m.resetListHeight()
 
 		m.editor.SetSize(m.width-fv-gv, m.height+1)
 	default:
@@ -490,6 +507,9 @@ type dialogStateChangeMsg dialogState
 func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
+
+	m.help.ShowAll = false
+	m.resetListHeight()
 
 	switch m.currentPane {
 	case PANE_GISTS:

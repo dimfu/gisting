@@ -185,7 +185,7 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.authCodeUrl = msg
 		return m, auth.waitForCallback(m.authCtx)
 	case errMsg:
-		log.Errorln(msg)
+		log.Errorln(msg.err.Error())
 		return m, nil
 	default:
 		if m.state == auth_prompt_secrets && m.form != nil {
