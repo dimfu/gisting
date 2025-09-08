@@ -427,7 +427,24 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previous()
 			return m, tea.Batch(m.updateActivePane(msg)...)
 		case "ctrl+l", "tab":
+			// skip tab navigation while editor is on INSERT mode or VISUAL
+			if m.currentPane == PANE_EDITOR && !m.editor.IsNormalMode() {
+				editorModel, cmd := m.editor.Update(msg)
+				cmds = append(cmds, cmd)
+				m.editor = editorModel.(editor.Model)
+				return m, tea.Batch(cmds...)
+			}
 			m.next()
+			// hack: send keypress cmd to trigger cursor blink
+			if m.currentPane == PANE_EDITOR {
+				m.editor.Focus()
+				return m, func() tea.Msg {
+					return tea.KeyMsg{
+						Type:  tea.KeyRunes,
+						Runes: []rune{},
+					}
+				}
+			}
 			return m, tea.Batch(m.updateActivePane(msg)...)
 		}
 
@@ -451,6 +468,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "enter":
 				m.next()
+				return m, tea.Batch(m.updateActivePane(msg)...)
 			default:
 			}
 
@@ -459,8 +477,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.fileList, cmd = m.fileList.Update(msg)
 				cmds = append(cmds, cmd)
-				// update editor content on file changes
-			case "enter", "ctrl+l":
+
+			// same thing here, trigger cursor blink on editor on select
+			case "enter":
 				m.next()
 				return m, func() tea.Msg {
 					return tea.KeyMsg{
@@ -515,7 +534,12 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 	case PANE_GISTS:
 		m.GistsStyle = DefaultStyles().Gists.Focused
 		m.FilesStyle = DefaultStyles().Files.Blurred
-		m.EditorStyle = DefaultStyles().Editor.Blurred
+		m.editor.Blur()
+
+		editorModel, updateEditorModel := m.editor.Update(msg)
+		cmds = append(cmds, updateEditorModel)
+		m.editor = editorModel.(editor.Model)
+
 		m.gistList, cmd = m.gistList.Update(msg)
 		cmds = append(cmds, cmd)
 		cmds = append(cmds, func() tea.Msg {
@@ -524,14 +548,19 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 	case PANE_FILES:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Focused
-		m.EditorStyle = DefaultStyles().Editor.Blurred
+		m.editor.Blur()
+
+		editorModel, updateEditorModel := m.editor.Update(msg)
+		cmds = append(cmds, updateEditorModel)
+		m.editor = editorModel.(editor.Model)
+
 		cmds = append(cmds, func() tea.Msg {
 			return dialogStateChangeMsg(dialog_closed)
 		})
 	case PANE_EDITOR:
 		m.GistsStyle = DefaultStyles().Gists.Blurred
 		m.FilesStyle = DefaultStyles().Files.Blurred
-		m.EditorStyle = DefaultStyles().Editor.Focused
+		m.editor.Focus()
 		cmds = append(cmds, func() tea.Msg {
 			return dialogStateChangeMsg(dialog_disabled)
 		})
