@@ -8,6 +8,7 @@ type Keymap struct {
 	Upload   key.Binding
 	Delete   key.Binding
 	Rename   key.Binding
+	Copy     key.Binding
 	Left     key.Binding
 	Right    key.Binding
 	Quit     key.Binding
@@ -22,7 +23,8 @@ func (k Keymap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Left, k.Right},
 		{k.Create, k.Upload, k.Delete},
-		{k.Rename, k.Help, k.Quit},
+		{k.Rename, k.Copy, k.Help},
+		{k.Quit},
 	}
 }
 
@@ -54,6 +56,10 @@ var DefaultKeymap = Keymap{
 	Rename: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "rename"),
+	),
+	Copy: key.NewBinding(
+		key.WithKeys("y"),
+		key.WithHelp("y", "copy content"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),

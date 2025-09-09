@@ -6,20 +6,22 @@ toolchain go1.24.3
 
 require (
 	github.com/alecthomas/chroma/v2 v2.18.0
+	github.com/aquilax/truncate v1.0.1
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/charmbracelet/huh v0.7.0
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/google/go-github/v74 v74.0.0
 	github.com/google/uuid v1.1.2
 	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13
 	github.com/ostafen/clover/v2 v2.0.0-alpha.3
 	github.com/sirupsen/logrus v1.9.3
+	golang.design/x/clipboard v0.7.1
 	golang.org/x/oauth2 v0.30.0
 )
 
 require (
-	github.com/aquilax/truncate v1.0.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
@@ -34,7 +36,6 @@ require (
 	github.com/dgraph-io/ristretto v0.1.0 // indirect
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/glog v1.0.0 // indirect
@@ -66,6 +67,9 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.etcd.io/bbolt v1.3.6 // indirect
 	go.opencensus.io v0.23.0 // indirect
+	golang.org/x/exp/shiny v0.0.0-20250606033433-dcc06ee1d476 // indirect
+	golang.org/x/image v0.28.0 // indirect
+	golang.org/x/mobile v0.0.0-20250606033058-a2a15c67f36f // indirect
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect

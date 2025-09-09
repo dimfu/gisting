@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sirupsen/logrus"
+	"golang.design/x/clipboard"
 )
 
 var (
@@ -27,6 +28,10 @@ func init() {
 }
 
 func main() {
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
 	defer storage.db.Close()
 	f, err := initLogger()
 	if err != nil {

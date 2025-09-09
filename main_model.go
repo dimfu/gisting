@@ -19,6 +19,7 @@ import (
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 	"github.com/ostafen/clover/v2/document"
 	"github.com/ostafen/clover/v2/query"
+	"golang.design/x/clipboard"
 	"golang.org/x/oauth2"
 )
 
@@ -204,7 +205,7 @@ func (m *mainModel) getGists() error {
 				}
 
 				// only get field content if they are not empty or else the program will be upset lol
-				if c, ok := existing.Get("content").(string); !ok {
+				if c, ok := existing.Get("content").(string); ok {
 					i.content = c
 				}
 			}
@@ -371,6 +372,15 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 	return cmds
 }
 
+func (m *mainModel) copyToClipboard() {
+	selectedItem := m.fileList.SelectedItem()
+	f, ok := selectedItem.(file)
+	if !ok {
+		return
+	}
+	clipboard.Write(clipboard.FmtText, []byte(f.content))
+}
+
 type updateEditorContent struct {
 	content  string
 	language string
@@ -477,6 +487,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "down", "j", "k":
 				m.fileList, cmd = m.fileList.Update(msg)
 				cmds = append(cmds, cmd)
+
+			case "y":
+				m.copyToClipboard()
+				return m, nil
 
 			// same thing here, trigger cursor blink on editor on select
 			case "enter":
