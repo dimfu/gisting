@@ -648,8 +648,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "u":
-				cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
-				return m, tea.Batch(cmds...)
+				if m.mainScreen.currentPane != PANE_EDITOR {
+					cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
+					return m, tea.Batch(cmds...)
+				}
 			case "a":
 				return m, m.reInitDialog(msg, form_type_create)
 			case "r":

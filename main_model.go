@@ -488,8 +488,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 
 			case "y":
-				m.copyToClipboard()
-				return m, nil
+				if m.currentPane != PANE_EDITOR {
+					m.copyToClipboard()
+					return m, nil
+				}
 
 			// same thing here, trigger cursor blink on editor on select
 			case "enter":
