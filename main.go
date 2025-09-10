@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -61,19 +62,31 @@ func main() {
 			{
 				Name:    "list",
 				Aliases: []string{"l"},
-				Usage:   "List every gist",
+				Usage:   "List authed user gist",
 				Action:  fileList,
 			},
 			{
 				Name:    "create",
 				Aliases: []string{"c"},
-				Usage:   "Create new gists",
+				Usage:   "Create new gist",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "description",
 						Aliases: []string{"d"},
 						Value:   "",
-						Usage:   "description for this gist",
+						Usage:   "Description for this gist",
+					},
+					&cli.BoolFlag{
+						Name:    "clipboard",
+						Aliases: []string{"P"},
+						Value:   false,
+						Usage:   "Create file with content from clipboard",
+					},
+					&cli.StringFlag{
+						Name:    "filename",
+						Aliases: []string{"f"},
+						Value:   "",
+						Usage:   "Set filename for the gist file",
 					},
 				},
 				Action: create,
@@ -146,7 +159,7 @@ func fileList(ctx context.Context, c *cli.Command) error {
 }
 
 func create(ctx context.Context, c *cli.Command) error {
-	if cfg.hasAccessToken() {
+	if !cfg.hasAccessToken() {
 		return err_unauthorized
 	}
 	client := github.NewClient(nil).WithAuthToken(cfg.Token.AccessToken)
@@ -167,37 +180,56 @@ func create(ctx context.Context, c *cli.Command) error {
 	}
 
 	var out string
-	for i := 0; i < c.Args().Len(); i++ {
-		path := c.Args().Get(i)
-		f, err := os.Stat(path)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				out += fmt.Sprintf("cannot add %q: no such file", path)
-				if i != c.Args().Len()-1 {
-					out += "\n"
-				}
-				continue
-			}
-			log.Println(err)
-			return err
-		}
-		if f.IsDir() {
-			out += fmt.Sprintf("could not add directory %q as gist file", f.Name())
-			if i != c.Args().Len()-1 {
-				out += "\n"
-			}
-		}
+	fromClipboard := c.Bool("clipboard")
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			panic(err)
-		}
-		filename := f.Name()
-		content := string(data)
+	files := []file{}
 
-		gist.Files[github.GistFilename(f.Name())] = github.GistFile{
+	if fromClipboard {
+		content := string(clipboard.Read(clipboard.FmtText))
+		filename := c.String("filename")
+		gist.Files[github.GistFilename(filename)] = github.GistFile{
 			Filename: &filename,
 			Content:  &content,
+		}
+	} else {
+		for i := 0; i < c.Args().Len(); i++ {
+			path := c.Args().Get(i)
+			f, err := os.Stat(path)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					out += fmt.Sprintf("cannot add %q: no such file", path)
+					continue
+				}
+				log.Println(err)
+				return err
+			}
+
+			// ignore directory for now
+			if f.IsDir() {
+				out += fmt.Sprintf("could not add directory %q as gist file", f.Name())
+				continue
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			filename := f.Name()
+
+			// only allows changing filename if only 1 file is included as the args
+			if c.Args().Len() == 1 && c.String("filename") != "" {
+				filename = c.String("filename")
+			}
+
+			content := string(data)
+
+			files = append(files, file{})
+
+			gist.Files[github.GistFilename(f.Name())] = github.GistFile{
+				Filename: &filename,
+				Content:  &content,
+			}
 		}
 	}
 
@@ -206,26 +238,29 @@ func create(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 
-	for _, file := range createdGist.Files {
-		doc := document.NewDocument()
-		doc.SetAll(map[string]any{
-			"id":        uuid.New().String(),
-			"gistId":    createdGist.GetID(),
-			"title":     file.GetFilename(),
-			"rawUrl":    file.GetRawURL(),
-			"updatedAt": createdGist.GetUpdatedAt().Time.In(time.Local).String(),
-			"content":   "",
-			"draft":     false,
-		})
-		err := storage.db.Save(string(collectionGistContent), doc)
-		if err != nil {
-			return fmt.Errorf("failed to insert file %q: %w", file.GetFilename(), err)
+	for _, uploadedFile := range createdGist.Files {
+		for _, file := range gist.Files {
+			if uploadedFile.GetFilename() == file.GetFilename() {
+				doc := document.NewDocument()
+				doc.SetAll(map[string]any{
+					"id":        uuid.New().String(),
+					"gistId":    createdGist.GetID(),
+					"title":     file.GetFilename(),
+					"rawUrl":    uploadedFile.GetRawURL(),
+					"updatedAt": createdGist.GetUpdatedAt().Time.In(time.Local).String(),
+					"content":   file.GetContent(),
+					"draft":     false,
+				})
+				err := storage.db.Insert(string(collectionGistContent), doc)
+				if err != nil {
+					return fmt.Errorf("failed to insert file %q: %w", file.GetFilename(), err)
+				}
+				out += fmt.Sprintf("%q added to the gist %q\n", file.GetFilename(), createdGist.GetDescription())
+			}
 		}
-
-		out += fmt.Sprintf("%q added to the gist %q\n", file.GetFilename(), createdGist.GetDescription())
 	}
 
-	fmt.Println(out)
+	fmt.Println(strings.TrimRight(out, "\n"))
 
 	return nil
 }
