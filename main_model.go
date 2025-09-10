@@ -198,7 +198,6 @@ func (m *mainModel) getGists() error {
 					id:        existing.Get("id").(string),
 					gistId:    existing.Get("gistId").(string),
 					title:     existing.Get("title").(string),
-					desc:      existing.Get("desc").(string),
 					rawUrl:    existing.Get("rawUrl").(string),
 					updatedAt: existing.Get("updatedAt").(string),
 					draft:     existing.Get("draft").(bool),

@@ -25,25 +25,26 @@ var (
 	}
 )
 
-func (s *store) init(path string, drop bool) error {
+func (s *store) init(path string) error {
 	db, err := c.Open(path)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Failed to check collection: %v", err))
 	}
 	s.db = db
 
-	if drop {
-		for _, collection := range collections {
-			if err := db.DropCollection(string(collection)); err != nil {
-				return fmt.Errorf("error while dropping collection %s\n", collection)
-			}
-		}
-	}
-
 	for _, collection := range collections {
 		s.initCollection(collection)
 	}
 
+	return nil
+}
+
+func (s *store) drop() error {
+	for _, collection := range collections {
+		if err := s.db.DropCollection(string(collection)); err != nil {
+			return fmt.Errorf("error while dropping collection %s\n", collection)
+		}
+	}
 	return nil
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -11,11 +12,19 @@ import (
 	"golang.org/x/oauth2"
 )
 
+var (
+	err_unauthorized = errors.New("Not authenticated yet, run gisting without sub command first")
+)
+
 type config struct {
 	ClientSecret string       `json:"clientSecret"`
 	ClientID     string       `json:"clientId"`
 	Token        oauth2.Token `json:"token"`
 	ConfigPath   string       `json:"configPath"`
+}
+
+func (c *config) hasAccessToken() bool {
+	return cfg.Token.AccessToken != ""
 }
 
 func (c *config) set(name string, value any) error {
@@ -71,7 +80,7 @@ func setup() error {
 		return err
 	}
 
-	if err := storage.init(cfg.ConfigPath, *drop); err != nil {
+	if err := storage.init(cfg.ConfigPath); err != nil {
 		return err
 	}
 

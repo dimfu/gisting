@@ -1,10 +1,21 @@
 package main
 
 import (
-	"flag"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"text/tabwriter"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/go-github/v74/github"
+	"github.com/google/uuid"
+	"github.com/ostafen/clover/v2/document"
+	"github.com/ostafen/clover/v2/query"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v3"
 	"golang.design/x/clipboard"
 )
 
@@ -14,24 +25,20 @@ var (
 
 	auth    = new(authManager)
 	storage = new(store)
-
-	drop = flag.Bool("drop", false, "drop collections at start up")
 )
 
 func init() {
-	// initiate setup the database, config and auth manager
-	flag.Parse()
 	auth.init()
 	if err := setup(); err != nil {
+		panic(err)
+	}
+	err := clipboard.Init()
+	if err != nil {
 		panic(err)
 	}
 }
 
 func main() {
-	err := clipboard.Init()
-	if err != nil {
-		panic(err)
-	}
 	defer storage.db.Close()
 	f, err := initLogger()
 	if err != nil {
@@ -40,10 +47,185 @@ func main() {
 	}
 	defer f.Close()
 
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		log.Println(err)
+	cmd := &cli.Command{
+		Name:  "gisting",
+		Usage: "interactive gist management in tui",
+		Action: func(ctx context.Context, c *cli.Command) error {
+			p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+			if _, err := p.Run(); err != nil {
+				return err
+			}
+			return nil
+		},
+		Commands: []*cli.Command{
+			{
+				Name:    "list",
+				Aliases: []string{"l"},
+				Usage:   "List every gist",
+				Action:  fileList,
+			},
+			{
+				Name:    "create",
+				Aliases: []string{"c"},
+				Usage:   "Create new gists",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "description",
+						Aliases: []string{"d"},
+						Value:   "",
+						Usage:   "description for this gist",
+					},
+				},
+				Action: create,
+			},
+			{
+				Name:    "drop",
+				Aliases: []string{"d"},
+				Usage:   "Drop all collection records",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if err := storage.drop(); err != nil {
+						return err
+					}
+					fmt.Println("Collections dropped successfully")
+					return nil
+				},
+			},
+		},
+	}
+
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		log.Fatal(err)
 	}
 
 	auth.close()
+}
+
+func fileList(ctx context.Context, c *cli.Command) error {
+	if !cfg.hasAccessToken() {
+		return err_unauthorized
+	}
+	client := github.NewClient(nil).WithAuthToken(cfg.Token.AccessToken)
+	out := []string{}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	gists, _, err := client.Gists.List(ctx, "", &github.GistListOptions{
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+		},
+	})
+
+	for _, gist := range gists {
+		for _, file := range gist.Files {
+			out = append(out, fmt.Sprintf("%s\t%s\t%s\n", gist.GetID(), gist.GetDescription(), file.GetFilename()))
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+
+	draftedDocs, err := storage.db.FindAll(
+		query.NewQuery(string(collectionDraftedGists)),
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, doc := range draftedDocs {
+		gistId := doc.Get("id").(string)
+		name := doc.Get("description").(string)
+		filename := doc.Get("title").(string)
+
+		out = append(out, fmt.Sprintf("%s\t%s\t%s\n", gistId, name, filename))
+	}
+	fmt.Fprintln(w, "ID\tNAME\tFILENAME")
+	for _, row := range out {
+		fmt.Fprint(w, row)
+	}
+	w.Flush()
+	return nil
+}
+
+func create(ctx context.Context, c *cli.Command) error {
+	if cfg.hasAccessToken() {
+		return err_unauthorized
+	}
+	client := github.NewClient(nil).WithAuthToken(cfg.Token.AccessToken)
+	_, _, err := client.Users.Get(context.Background(), "")
+	if err != nil {
+		return err
+	}
+
+	public := true
+	gist := github.Gist{
+		Public: &public,
+		Files:  map[github.GistFilename]github.GistFile{},
+	}
+
+	description := c.String("description")
+	if description != "" {
+		gist.Description = &description
+	}
+
+	var out string
+	for i := 0; i < c.Args().Len(); i++ {
+		path := c.Args().Get(i)
+		f, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				out += fmt.Sprintf("cannot add %q: no such file", path)
+				if i != c.Args().Len()-1 {
+					out += "\n"
+				}
+				continue
+			}
+			log.Println(err)
+			return err
+		}
+		if f.IsDir() {
+			out += fmt.Sprintf("could not add directory %q as gist file", f.Name())
+			if i != c.Args().Len()-1 {
+				out += "\n"
+			}
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			panic(err)
+		}
+		filename := f.Name()
+		content := string(data)
+
+		gist.Files[github.GistFilename(f.Name())] = github.GistFile{
+			Filename: &filename,
+			Content:  &content,
+		}
+	}
+
+	createdGist, _, err := client.Gists.Create(context.Background(), &gist)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range createdGist.Files {
+		doc := document.NewDocument()
+		doc.SetAll(map[string]any{
+			"id":        uuid.New().String(),
+			"gistId":    createdGist.GetID(),
+			"title":     file.GetFilename(),
+			"rawUrl":    file.GetRawURL(),
+			"updatedAt": createdGist.GetUpdatedAt().Time.In(time.Local).String(),
+			"content":   "",
+			"draft":     false,
+		})
+		err := storage.db.Save(string(collectionGistContent), doc)
+		if err != nil {
+			return fmt.Errorf("failed to insert file %q: %w", file.GetFilename(), err)
+		}
+
+		out += fmt.Sprintf("%q added to the gist %q\n", file.GetFilename(), createdGist.GetDescription())
+	}
+
+	fmt.Println(out)
+
+	return nil
 }
