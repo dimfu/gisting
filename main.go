@@ -92,6 +92,19 @@ func main() {
 				Action: create,
 			},
 			{
+				Name:  "delete",
+				Usage: "Delete ",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "type",
+						Aliases: []string{"t"},
+						Value:   "file",
+						Usage:   "Delete file or gist",
+					},
+				},
+				Action: delete,
+			},
+			{
 				Name:    "drop",
 				Aliases: []string{"d"},
 				Usage:   "Drop all collection records",
@@ -107,7 +120,7 @@ func main() {
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
 	}
 
 	auth.close()
@@ -126,14 +139,18 @@ func fileList(ctx context.Context, c *cli.Command) error {
 		},
 	})
 
+	if err != nil {
+		var errRes *github.ErrorResponse
+		if errors.As(err, &errRes) {
+			return errors.New(errRes.Message)
+		}
+		return err
+	}
+
 	for _, gist := range gists {
 		for _, file := range gist.Files {
 			out = append(out, fmt.Sprintf("%s\t%s\t%s\n", gist.GetID(), gist.GetDescription(), file.GetFilename()))
 		}
-	}
-
-	if err != nil {
-		return err
 	}
 
 	draftedDocs, err := storage.db.FindAll(
@@ -235,6 +252,10 @@ func create(ctx context.Context, c *cli.Command) error {
 
 	createdGist, _, err := client.Gists.Create(context.Background(), &gist)
 	if err != nil {
+		var errRes *github.ErrorResponse
+		if errors.As(err, &errRes) {
+			return errors.New(errRes.Message)
+		}
 		return err
 	}
 
@@ -261,6 +282,57 @@ func create(ctx context.Context, c *cli.Command) error {
 	}
 
 	fmt.Println(strings.TrimRight(out, "\n"))
+
+	return nil
+}
+
+func delete(ctx context.Context, c *cli.Command) error {
+	if !cfg.hasAccessToken() {
+		return err_unauthorized
+	}
+
+	gistId := c.Args().Get(0)
+	filename := c.Args().Get(1)
+
+	client := github.NewClient(nil).WithAuthToken(cfg.Token.AccessToken)
+	_, _, err := client.Users.Get(context.Background(), "")
+	if err != nil {
+		return err
+	}
+
+	t := c.String("type")
+
+	switch t {
+	case "gist":
+		_, err := client.Gists.Delete(context.Background(), gistId)
+		if err != nil {
+			var errRes *github.ErrorResponse
+			if errors.As(err, &errRes) {
+				return errors.New(errRes.Message)
+			}
+			return err
+		}
+		fmt.Printf("%q gist successfully deleted\n", gistId)
+		break
+	case "file":
+		gist := github.Gist{
+			Files: map[github.GistFilename]github.GistFile{
+				github.GistFilename(filename): {},
+			},
+		}
+		_, _, err := client.Gists.Edit(context.Background(), gistId, &gist)
+		if err != nil {
+			var errRes *github.ErrorResponse
+			if errors.As(err, &errRes) {
+				return errors.New(errRes.Message)
+			}
+			return err
+		}
+		fmt.Printf("%q gist file successfully deleted\n", filename)
+		break
+	default:
+		return fmt.Errorf("Delete type %q is not recognized\n", t)
+	}
 
 	return nil
 }
