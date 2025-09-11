@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -36,8 +35,7 @@ const (
 type mainModel struct {
 	gists map[*gist][]list.Item
 
-	keymap   Keymap
-	shutdown chan os.Signal
+	keymap Keymap
 
 	client *github.Client
 
@@ -57,12 +55,11 @@ type mainModel struct {
 	EditorStyle EditorBaseStyle
 }
 
-func newMainModel(shutdown chan os.Signal, client *github.Client) mainModel {
+func newMainModel(client *github.Client) mainModel {
 	defaultStyle := DefaultStyles()
 	m := mainModel{
 		gists:       map[*gist][]list.Item{},
 		client:      client,
-		shutdown:    shutdown,
 		keymap:      DefaultKeymap,
 		help:        help.New(),
 		currentPane: PANE_GISTS,
@@ -98,6 +95,11 @@ func newMainModel(shutdown chan os.Signal, client *github.Client) mainModel {
 	textEditor := editor.New(0, 0)
 	textEditor.ShowMessages(true)
 	textEditor.SetCursorBlinkMode(true)
+
+	textEditor.DisableVimMode(true)
+	if withVimMotion {
+		textEditor.DisableVimMode(false)
+	}
 
 	// ensure the editor is initialized using the correct language from the selected first file
 	firstFile := m.gists[firstgist][0]

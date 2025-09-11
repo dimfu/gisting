@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
-	"os"
 	"sort"
 	"time"
 
@@ -29,10 +27,7 @@ const (
 type model struct {
 	client *github.Client
 
-	shutdown chan os.Signal
-
 	screenState screen
-
 	dialogState dialogState
 
 	authScreen   authModel
@@ -44,23 +39,12 @@ type model struct {
 }
 
 func initialModel() model {
-	mux := http.NewServeMux()
-	authCtx, authCancel := context.WithCancel(context.Background())
 	return model{
 		client:      nil,
 		screenState: authScreen,
 		authScreen: authModel{
 			loadingSpinner: spinner.New(),
 			state:          auth_loading,
-			mux:            mux,
-			server: &http.Server{
-				Addr:         ":8080",
-				Handler:      mux,
-				ReadTimeout:  10 * time.Second,
-				WriteTimeout: 10 * time.Second,
-			},
-			authCtx:    authCtx,
-			authCancel: authCancel,
 		},
 		dialogScreen: newDialogModel(0, 0, dialog_closed, nil),
 		dialogState:  dialog_closed,
@@ -671,7 +655,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case authSuccessMsg:
 		m.client = msg.client
-		model := newMainModel(m.shutdown, msg.client)
+		model := newMainModel(msg.client)
 		m.mainScreen = model
 		cmds = append(cmds, model.Init())
 		m.screenState = mainScreen
