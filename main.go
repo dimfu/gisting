@@ -24,7 +24,8 @@ var (
 	cfg *config
 	log = logrus.New()
 
-	storage = new(store)
+	storage       = new(store)
+	withVimMotion = false
 )
 
 func init() {
@@ -49,7 +50,16 @@ func main() {
 	cmd := &cli.Command{
 		Name:  "gisting",
 		Usage: "interactive gist management in tui",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "vimMotion",
+				Aliases: []string{"v"},
+				Usage:   "Using vim motion",
+				Value:   false,
+			},
+		},
 		Action: func(ctx context.Context, c *cli.Command) error {
+			withVimMotion = c.Bool("vimMotion")
 			p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 			if _, err := p.Run(); err != nil {
 				return err
