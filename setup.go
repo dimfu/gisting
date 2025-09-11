@@ -8,8 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
-
-	"golang.org/x/oauth2"
 )
 
 var (
@@ -17,14 +15,12 @@ var (
 )
 
 type config struct {
-	ClientSecret string       `json:"clientSecret"`
-	ClientID     string       `json:"clientId"`
-	Token        oauth2.Token `json:"token"`
-	ConfigPath   string       `json:"configPath"`
+	AccessToken string `json:"access_token"`
+	ConfigPath  string `json:"configPath"`
 }
 
 func (c *config) hasAccessToken() bool {
-	return cfg.Token.AccessToken != ""
+	return cfg.AccessToken != ""
 }
 
 func (c *config) set(name string, value any) error {
@@ -63,10 +59,7 @@ func (c *config) set(name string, value any) error {
 }
 
 func (c *config) clearSecrets() error {
-	if err := c.set("ClientSecret", ""); err != nil {
-		return err
-	}
-	if err := c.set("ClientID", ""); err != nil {
+	if err := c.set("AccessToken", ""); err != nil {
 		return err
 	}
 	return nil
@@ -114,10 +107,8 @@ func initConfig() (*config, error) {
 
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		cfg = config{
-			ClientSecret: "",
-			ClientID:     "",
-			Token:        oauth2.Token{},
-			ConfigPath:   configDir,
+			AccessToken: "",
+			ConfigPath:  configDir,
 		}
 
 		if err := writeConfig(configFile, &cfg); err != nil {

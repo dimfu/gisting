@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -17,8 +16,6 @@ type authState int
 const (
 	auth_loading authState = iota
 	auth_prompt_secrets
-	auth_wait_oauth
-	auth_success
 )
 
 type errMsg struct{ err error }
@@ -26,7 +23,6 @@ type errMsg struct{ err error }
 type authModel struct {
 	loadingSpinner spinner.Model
 	state          authState
-	authCodeUrl    authCodeMsg
 	mux            *http.ServeMux
 	server         *http.Server
 	form           *huh.Form
@@ -41,53 +37,25 @@ type authSuccessMsg struct {
 	client *github.Client
 }
 
-func (m authModel) runAuthServer() tea.Cmd {
+type needSecretsMsg struct{}
+
+func (m *authModel) authenticate() tea.Cmd {
 	return func() tea.Msg {
-		m.mux.Handle("/callback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var cbErr error
-			defer func() {
-				auth.callbackChan <- authCallbackResult{error: cbErr}
-			}()
-			code := r.URL.Query().Get("code")
-			if code == "" {
-				cbErr = errors.New("Could not get the oauth code")
-				http.Error(w, "Code not found", http.StatusBadRequest)
-				return
-			}
-			if err := auth.exchangeToken(context.Background(), code); err != nil {
-				cbErr = err
-				http.Error(w, "Error while exchanging auth token "+err.Error(), http.StatusInternalServerError)
-			}
-			w.WriteHeader(http.StatusOK)
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `
-			<html>
-				<body>
-					<h2>Authentication Successful!</h2>
-					<p>You can now close this window and return to the application.</p>
-				</body>
-			</html>
-		`)
-		}))
-		go func() {
-			if err := m.server.ListenAndServe(); err != nil {
-				if errors.Is(err, http.ErrServerClosed) {
-					return
-				}
-			}
-		}()
-		return nil
+		ctx := context.Background()
+		client := github.NewClient(nil).WithAuthToken(cfg.AccessToken)
+		user, _, err := client.Users.Get(ctx, "")
+		if user == nil {
+			return errMsg{err: err}
+		}
+		return authSuccessMsg{client}
 	}
 }
 
-type needSecretsMsg struct{}
-
 func (m authModel) Init() tea.Cmd {
-	if cfg.ClientID == "" || cfg.ClientSecret == "" {
+	if cfg.AccessToken == "" {
 		return func() tea.Msg { return needSecretsMsg{} }
 	}
-	auth.token = &cfg.Token
-	return tea.Batch(m.loadingSpinner.Tick, m.runAuthServer(), auth.authenticate())
+	return tea.Batch(m.loadingSpinner.Tick, m.authenticate())
 }
 
 func (m authModel) View() string {
@@ -98,16 +66,7 @@ func (m authModel) View() string {
 		}
 		return "Input required"
 	case auth_loading:
-		return fmt.Sprintf("%s Authenticating...", m.loadingSpinner.View())
-	case auth_wait_oauth:
-		// prompt the user to authenticate their github account if they're not authenticated yet
-		return fmt.Sprintf("Visit the URL for the auth dialog: %v\n", m.authCodeUrl)
-	case auth_success:
-		// shutdown the http server since its not needed anymore after authentication
-		if err := m.server.Shutdown(context.Background()); err != nil {
-			panic(err)
-		}
-		return fmt.Sprintf("Authenticated")
+		return fmt.Sprintf("%s Loading...", m.loadingSpinner.View())
 	default:
 		return "this should not happen"
 	}
@@ -142,7 +101,6 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 	case authSuccessMsg:
-		m.state = auth_success
 		return m, func() tea.Msg {
 			return msg
 		}
@@ -151,22 +109,12 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form = huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
-					Title("GitHub Client ID").
-					Value(&cfg.ClientID).
-					Key("clientId").
+					Title("Github Personal Token").
+					Value(&cfg.AccessToken).
+					Key("access_token").
 					Validate(func(s string) error {
 						if s == "" {
 							return fmt.Errorf("client id required")
-						}
-						return nil
-					}),
-				huh.NewInput().
-					Title("GitHub Client Secret").
-					Value(&cfg.ClientSecret).
-					Key("clientSecret").
-					Validate(func(s string) error {
-						if s == "" {
-							return fmt.Errorf("client secret required")
 						}
 						return nil
 					}),
@@ -180,10 +128,6 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, m.form.Init()
-	case authCodeMsg:
-		m.state = auth_wait_oauth
-		m.authCodeUrl = msg
-		return m, auth.waitForCallback(m.authCtx)
 	case errMsg:
 		log.Errorln(msg.err.Error())
 		return m, nil
@@ -198,20 +142,13 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.form.State == huh.StateCompleted {
 				m.state = auth_loading
-				clientSecret := m.form.GetString("clientSecret")
-				clientId := m.form.GetString("clientId")
+				access_token := m.form.GetString("access_token")
 
-				if err := cfg.set("ClientSecret", clientSecret); err != nil {
-					panic(err)
-				}
-				if err := cfg.set("ClientID", clientId); err != nil {
+				if err := cfg.set("AccessToken", access_token); err != nil {
 					panic(err)
 				}
 
-				auth.config.ClientSecret = clientSecret
-				auth.config.ClientID = clientId
-
-				return m, tea.Batch(m.loadingSpinner.Tick, m.runAuthServer(), auth.authenticate())
+				return m, tea.Batch(m.loadingSpinner.Tick, m.authenticate())
 			}
 		} else {
 			m.loadingSpinner, cmd = m.loadingSpinner.Update(msg)

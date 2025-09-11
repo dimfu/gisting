@@ -24,12 +24,10 @@ var (
 	cfg *config
 	log = logrus.New()
 
-	auth    = new(authManager)
 	storage = new(store)
 )
 
 func init() {
-	auth.init()
 	if err := setup(); err != nil {
 		panic(err)
 	}
@@ -93,13 +91,12 @@ func main() {
 			},
 			{
 				Name:  "delete",
-				Usage: "Delete ",
+				Usage: "Delete a gist or file (gisting [GIST_ID] [FILE_NAME])",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "type",
 						Aliases: []string{"t"},
 						Value:   "file",
-						Usage:   "Delete file or gist",
 					},
 				},
 				Action: delete,
@@ -122,15 +119,13 @@ func main() {
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		fmt.Println(err)
 	}
-
-	auth.close()
 }
 
 func fileList(ctx context.Context, c *cli.Command) error {
 	if !cfg.hasAccessToken() {
 		return err_unauthorized
 	}
-	client := github.NewClient(nil).WithAuthToken(cfg.Token.AccessToken)
+	client := github.NewClient(nil).WithAuthToken(cfg.AccessToken)
 	out := []string{}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	gists, _, err := client.Gists.List(ctx, "", &github.GistListOptions{
@@ -179,7 +174,7 @@ func create(ctx context.Context, c *cli.Command) error {
 	if !cfg.hasAccessToken() {
 		return err_unauthorized
 	}
-	client := github.NewClient(nil).WithAuthToken(cfg.Token.AccessToken)
+	client := github.NewClient(nil).WithAuthToken(cfg.AccessToken)
 	_, _, err := client.Users.Get(context.Background(), "")
 	if err != nil {
 		return err
@@ -294,7 +289,7 @@ func delete(ctx context.Context, c *cli.Command) error {
 	gistId := c.Args().Get(0)
 	filename := c.Args().Get(1)
 
-	client := github.NewClient(nil).WithAuthToken(cfg.Token.AccessToken)
+	client := github.NewClient(nil).WithAuthToken(cfg.AccessToken)
 	_, _, err := client.Users.Get(context.Background(), "")
 	if err != nil {
 		return err
