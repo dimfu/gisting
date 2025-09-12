@@ -114,7 +114,6 @@ func newMainModel(client *github.Client) mainModel {
 		VisualModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("127")).Foreground(lipgloss.Color("255")),
 		CommandModeStyle:       lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("255")),
 		CommandLineStyle:       lipgloss.NewStyle().Background(lipgloss.Color("235")).Foreground(lipgloss.Color("255")),
-		StatusLineStyle:        lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("255")),
 		MessageStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("34")),
 		ErrorStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("208")),
 		LineNumberStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Width(4).Align(lipgloss.Right),
@@ -122,6 +121,10 @@ func newMainModel(client *github.Client) mainModel {
 		SelectionStyle:         lipgloss.NewStyle().Background(lipgloss.Color("237")),
 		HighlightYankStyle:     lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true),
 		PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
+	}
+
+	if withVimMotion {
+		defaultEditorTheme.StatusLineStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("255"))
 	}
 
 	textEditor.WithTheme(defaultEditorTheme)
