@@ -1,5 +1,9 @@
 # gisting
 
+<p align="center">
+    <img width="500" src="./.github/gisting.png"></img>
+</p>
+
 An interactive gist management inside the terminal that you can use to
 upload content to https://gist.github.com/.
 
