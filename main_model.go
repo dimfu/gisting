@@ -511,6 +511,17 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case PANE_EDITOR:
+			switch msg.String() {
+			case "ctrl+s":
+				m.editor.Blur()
+				m.previous()
+
+				msg := m.editor.GetCurrentContent()
+
+				cmds = append(cmds, m.saveFileContent(string(msg))...)
+				cmds = append(cmds, m.updateActivePane(msg)...)
+				return m, tea.Batch(cmds...)
+			}
 			m.editor.Focus()
 			editorModel, cmd := m.editor.Update(msg)
 			cmds = append(cmds, cmd)

@@ -29,7 +29,7 @@ To launch the interactive interface:
 ```bash
 gisting
 
-# To enable vim motion for the editor
+# To enable vim motion for the editor (recommended)
 gisting -v
 ```
 
