@@ -638,7 +638,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "u":
-				if m.mainScreen.currentPane != PANE_EDITOR {
+				if m.mainScreen.currentPane != PANE_EDITOR && m.screenState != dialogScreen {
 					cmds = append(cmds, m.upload(m.mainScreen.currentPane)...)
 					return m, tea.Batch(cmds...)
 				}
