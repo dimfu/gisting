@@ -48,8 +48,9 @@ func main() {
 	defer f.Close()
 
 	cmd := &cli.Command{
-		Name:  "gisting",
-		Usage: "interactive gist management in tui",
+		Name:    "gisting",
+		Usage:   "interactive gist management in tui",
+		Version: "1.0.1",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "vimMotion",
