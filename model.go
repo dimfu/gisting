@@ -54,7 +54,7 @@ func initialModel() model {
 type rerenderMsg bool
 
 // create gist and store it in drafted gist collection
-func (m *model) createGist(name string) []tea.Cmd {
+func (m *model) createGist(name string, visibility gistVisibility) []tea.Cmd {
 	var cmds []tea.Cmd
 
 	if name == "" {
@@ -67,7 +67,9 @@ func (m *model) createGist(name string) []tea.Cmd {
 		"id":          id,
 		"description": name,
 		"status":      gist_status_drafted,
+		"visibility":  visibility,
 	})
+
 	if err := storage.db.Insert(string(collectionDraftedGists), doc); err != nil {
 		return cmds
 	}
@@ -77,10 +79,12 @@ func (m *model) createGist(name string) []tea.Cmd {
 
 	emptyList := []list.Item{}
 	g := gist{
-		id:     id,
-		name:   name,
-		status: gist_status_drafted,
+		id:        id,
+		name:      name,
+		status:    gist_status_drafted,
+		visiblity: visibility,
 	}
+
 	gistItems = append(gistItems, &g)
 
 	// fill the app gists map with empty list for better user experience
@@ -268,15 +272,17 @@ func (m *model) upload(pane pane) []tea.Cmd {
 		return cmds
 	}
 
-	// not planning to add public toggles for now. github only allows changing public status from secret to public
-	// and not the other way around, which makes toggling very awkward if I want to and always lost the revision history in the proccess
-	// because I had to recreate the original gist
-	public := true
+	var public bool
+	if g.visiblity == gist_public {
+		public = true
+	}
+
 	gist := github.Gist{
 		Public:      &public,
 		Description: &g.name,
 		Files:       map[github.GistFilename]github.GistFile{},
 	}
+
 	files := []file{}
 	for _, item := range m.mainScreen.fileList.Items() {
 		file, ok := item.(file)
@@ -688,7 +694,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch state {
 		case dialog_create:
 			if pane == PANE_GISTS {
-				cmds = append(cmds, m.createGist(msg.value)...)
+				cmds = append(cmds, m.createGist(msg.value, msg.gistVisibility)...)
 			} else {
 				cmds = append(cmds, m.createFile(msg.value, gist)...)
 			}

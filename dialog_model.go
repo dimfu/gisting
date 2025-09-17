@@ -28,9 +28,10 @@ type dialogModel struct {
 }
 
 type dialogSubmitMsg struct {
-	state    dialogState
-	gistName string
-	value    string
+	state          dialogState
+	gistName       string
+	value          string
+	gistVisibility gistVisibility
 }
 
 func (m *dialogModel) formInput(actionType, value string) *huh.Form {
@@ -46,15 +47,27 @@ func (m *dialogModel) formInput(actionType, value string) *huh.Form {
 		affirmStr = "Submit"
 	}
 
+	fields := []huh.Field{
+		huh.NewInput().
+			Placeholder(fmt.Sprintf("Enter %s name", actionType)).Value(&value).Key("value").WithWidth(60),
+	}
+
+	// show option to create public or private gist
+	if m.state == dialog_create && actionType == "Gist" {
+		s := huh.NewSelect[gistVisibility]().Title("Gist Visiblity").Options(
+			huh.NewOption("Public", gist_public),
+			huh.NewOption("Secret", gist_secret),
+		).Key("visibility")
+		fields = append(fields, s)
+	}
+
+	fields = append(fields, huh.NewConfirm().
+		Affirmative(affirmStr).
+		Key("confirm").
+		Negative("Cancel").Value(&d))
+
 	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Placeholder(fmt.Sprintf("Enter %s name", actionType)).Value(&value).Key("value").WithWidth(60),
-			huh.NewConfirm().
-				Affirmative(affirmStr).
-				Key("confirm").
-				Negative("Cancel").Value(&d),
-		),
+		huh.NewGroup(fields...),
 	)
 }
 
@@ -111,11 +124,19 @@ func (m dialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.form.State == huh.StateCompleted {
 		isAffirm := m.form.GetBool("confirm")
 		if isAffirm {
+			msg := dialogSubmitMsg{
+				state: m.state,
+				value: m.form.GetString("value"),
+			}
+
+			if m.state == dialog_create {
+				visGet := m.form.Get("visibility")
+				visibility, _ := visGet.(gistVisibility)
+				msg.gistVisibility = visibility
+			}
+
 			cmds = append(cmds, func() tea.Msg {
-				return dialogSubmitMsg{
-					state: m.state,
-					value: m.form.GetString("value"),
-				}
+				return msg
 			})
 		} else {
 			cmds = append(cmds, func() tea.Msg {

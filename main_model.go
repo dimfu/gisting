@@ -216,11 +216,18 @@ func (m *mainModel) getGists() error {
 
 			items = append(items, i)
 		}
+
+		visibility := gist_secret
+		if g.GetPublic() {
+			visibility = gist_public
+		}
+
 		g := gist{
 			name:      g.GetDescription(),
 			id:        g.GetID(),
 			status:    gist_status_published,
 			updatedAt: g.GetUpdatedAt().Time.In(time.Local),
+			visiblity: visibility,
 		}
 		m.gists[&g] = items
 	}
@@ -254,10 +261,12 @@ func (m *mainModel) getGists() error {
 	for _, doc := range draftedDocs {
 		statusInt := doc.Get("status").(int64)
 		gistId := doc.Get("id").(string)
+		visibility := doc.Get("visibility").(int64)
 		g := gist{
-			id:     gistId,
-			name:   doc.Get("description").(string),
-			status: gistStatus(statusInt),
+			id:        gistId,
+			name:      doc.Get("description").(string),
+			status:    gistStatus(statusInt),
+			visiblity: gistVisibility(visibility),
 		}
 		fileDocs, err := storage.db.FindAll(
 			query.NewQuery(string(collectionGistContent)).Where(query.Field("gistId").Eq(gistId).And(query.Field("draft").Eq(true))),

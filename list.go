@@ -21,10 +21,18 @@ const (
 	gist_status_published
 )
 
+type gistVisibility int64
+
+const (
+	gist_public gistVisibility = iota
+	gist_secret
+)
+
 type gist struct {
-	id        string     `clover:"id"`
-	name      string     `clover:"name"`
-	status    gistStatus `clover:"status"`
+	id        string         `clover:"id"`
+	name      string         `clover:"name"`
+	status    gistStatus     `clover:"status"`
+	visiblity gistVisibility `clover:"visibility"`
 	updatedAt time.Time
 }
 
