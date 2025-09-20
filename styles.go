@@ -1,6 +1,8 @@
 package main
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+)
 
 type FilesStyle struct {
 	Focused FilesBaseStyle
@@ -12,9 +14,15 @@ type GistsStyle struct {
 	Blurred GistsBaseStyle
 }
 
-type EditorStyle struct {
-	Focused EditorBaseStyle
-	Blurred EditorBaseStyle
+type DialogStyle struct {
+	Container        lipgloss.Style
+	Base             lipgloss.Style
+	FocusedTitle     lipgloss.Style
+	BlurredTitle     lipgloss.Style
+	UnselectedOption lipgloss.Style
+	FieldFocused     lipgloss.Style
+	FocusedButton    lipgloss.Style
+	BlurredButton    lipgloss.Style
 }
 
 type FilesBaseStyle struct {
@@ -37,30 +45,21 @@ type GistsBaseStyle struct {
 	NoItems    lipgloss.Style
 }
 
-type EditorBaseStyle struct {
-	Base         lipgloss.Style
-	Title        lipgloss.Style
-	Separator    lipgloss.Style
-	LineNumber   lipgloss.Style
-	EmptyHint    lipgloss.Style
-	EmptyHintKey lipgloss.Style
-}
-
 type Styles struct {
 	Files  FilesStyle
 	Gists  GistsStyle
-	Editor EditorStyle
+	Dialog DialogStyle
 }
 
 func DefaultStyles() Styles {
-	white := lipgloss.Color("#ffffff")
-	gray := lipgloss.Color("241")
-	black := lipgloss.Color("235")
+	white := lipgloss.Color("#ffffff") // white color
+	gray := lipgloss.Color("241")      // gray color
+	black := lipgloss.Color("235")     // background color
 	// brightBlack := lipgloss.Color("#373b41")
 	// green := lipgloss.Color("#527251")
 	// brightGreen := lipgloss.Color("#bce1af")
-	brightBlue := lipgloss.Color("#afbee1")
-	blue := lipgloss.Color("#64708d")
+	brightBlue := lipgloss.Color("#afbee1") // primary color
+	blue := lipgloss.Color("#64708d")       // primary color subdued
 	// red := lipgloss.Color("a46060")
 	// brightRed := lipgloss.Color("#e49393")
 
@@ -114,6 +113,16 @@ func DefaultStyles() Styles {
 					Foreground(gray).
 					Padding(0, 2),
 			},
+		},
+		Dialog: DialogStyle{
+			Container:        lipgloss.NewStyle().Align(lipgloss.Center, lipgloss.Center).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(gray)).Padding(1, 2),
+			Base:             lipgloss.NewStyle().PaddingLeft(1).BorderStyle(lipgloss.ThickBorder()).BorderLeft(true).BorderForeground(gray),
+			FocusedTitle:     lipgloss.NewStyle().Foreground(white),
+			BlurredTitle:     lipgloss.NewStyle().Foreground(gray),
+			UnselectedOption: lipgloss.NewStyle().Foreground(gray),
+			FieldFocused:     lipgloss.NewStyle().PaddingLeft(1).BorderStyle(lipgloss.ThickBorder()).BorderLeft(true).Foreground(lipgloss.Color(gray)),
+			FocusedButton:    lipgloss.NewStyle().Padding(0, 2).MarginRight(1).Foreground(lipgloss.Color("0")).Background(blue),
+			BlurredButton:    lipgloss.NewStyle().Padding(0, 2).MarginRight(1).Foreground(lipgloss.Color("7")).Background(lipgloss.Color("0")),
 		},
 	}
 }

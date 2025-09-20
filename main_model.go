@@ -50,9 +50,8 @@ type mainModel struct {
 
 	currentPane pane
 
-	FilesStyle  FilesBaseStyle
-	GistsStyle  GistsBaseStyle
-	EditorStyle EditorBaseStyle
+	FilesStyle FilesBaseStyle
+	GistsStyle GistsBaseStyle
 }
 
 func newMainModel(client *github.Client) mainModel {
