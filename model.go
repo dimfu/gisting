@@ -51,8 +51,6 @@ func initialModel() model {
 	}
 }
 
-type rerenderMsg bool
-
 // create gist and store it in drafted gist collection
 func (m *model) createGist(name string, visibility gistVisibility) []tea.Cmd {
 	var cmds []tea.Cmd
@@ -115,11 +113,7 @@ func (m *model) createGist(name string, visibility gistVisibility) []tea.Cmd {
 		}
 	}
 
-	// trigger rerender
-	rerender := func() tea.Msg {
-		return rerenderMsg(true)
-	}
-	cmds = append(cmds, gistCmd, fileCmd, updateFileList, rerender)
+	cmds = append(cmds, gistCmd, fileCmd, updateFileList)
 
 	return cmds
 }
@@ -160,10 +154,6 @@ func (m *model) deleteGist(g *gist) []tea.Cmd {
 		_, updateList := m.mainScreen.fileList.Update(nil)
 		cmds = append(cmds, updateList)
 	}
-
-	cmds = append(cmds, func() tea.Msg {
-		return rerenderMsg(true)
-	})
 
 	return cmds
 }
@@ -250,11 +240,7 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 	fileCmd := m.mainScreen.fileList.SetItems(m.mainScreen.gists[gist])
 	_, updateFileList := m.mainScreen.fileList.Update(nil)
 
-	// trigger rerender
-	rerender := func() tea.Msg {
-		return rerenderMsg(true)
-	}
-	cmds = append(cmds, fileCmd, updateFileList, rerender)
+	cmds = append(cmds, fileCmd, updateFileList)
 
 	return cmds
 }
@@ -378,10 +364,6 @@ func (m *model) upload(pane pane) []tea.Cmd {
 	cmds = append(cmds, cmd)
 	_, updatedFileList := m.mainScreen.fileList.Update(nil)
 	cmds = append(cmds, updatedFileList)
-
-	cmds = append(cmds, func() tea.Msg {
-		return rerenderMsg(true)
-	})
 	return cmds
 }
 
@@ -519,10 +501,6 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 
 		cmds = append(cmds, m.mainScreen.fileList.SetItem(fileIdx, selectedFile))
 	}
-
-	cmds = append(cmds, func() tea.Msg {
-		return rerenderMsg(true)
-	})
 
 	return cmds
 }
@@ -720,16 +698,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialogCancelled:
 		cmds = append(cmds, m.mainScreen.updateActivePane(msg)...)
 		m.closeDialog()
-		return m, tea.Batch(cmds...)
-
-	case rerenderMsg:
-		newMainScreen, newCmd := m.mainScreen.Update(msg)
-		mainModel, ok := newMainScreen.(mainModel)
-		if !ok {
-			panic("could not perform authModel assertion")
-		}
-		m.mainScreen = mainModel
-		cmd = newCmd
 		return m, tea.Batch(cmds...)
 	}
 

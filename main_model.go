@@ -379,7 +379,6 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 	m.gists[g][idx] = updatedFile
 
 	cmds = append(cmds, m.fileList.SetItem(idx, updatedFile))
-	cmds = append(cmds, func() tea.Msg { return rerenderMsg(true) })
 
 	return cmds
 }
@@ -418,10 +417,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case rerenderMsg:
-		cmds = append(cmds, m.updateActivePane(msg)...)
-		return m, tea.Batch(cmds...)
-
 	case editor.SaveMsg:
 		if m.currentPane == PANE_EDITOR {
 			m.editor.Blur()
