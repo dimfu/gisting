@@ -54,7 +54,7 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "vimMotion",
-				Aliases: []string{"v"},
+				Aliases: []string{"vm"},
 				Usage:   "Using vim motion",
 				Value:   false,
 			},
