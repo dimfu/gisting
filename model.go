@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"sort"
 	"time"
 
@@ -24,6 +23,26 @@ const (
 	dialogScreen
 )
 
+type infoVariant int
+
+const (
+	info_default infoVariant = iota
+	info_error
+)
+
+type clearInfoMsg struct{}
+
+type infoMsg struct {
+	msg     string
+	variant infoVariant
+}
+
+func showInfo(msg string, variant infoVariant) tea.Cmd {
+	return func() tea.Msg {
+		return infoMsg{msg: msg, variant: variant}
+	}
+}
+
 type model struct {
 	client *github.Client
 
@@ -34,8 +53,9 @@ type model struct {
 	mainScreen   mainModel
 	dialogScreen dialogModel
 
-	width  int
-	height int
+	width   int
+	height  int
+	infoMsg *infoMsg
 }
 
 func initialModel() model {
@@ -102,11 +122,7 @@ func (m *model) createGist(name string, visibility gistVisibility) []tea.Cmd {
 
 	// select the newly created gist item immediately in the gist list
 	for idx, item := range gistItems {
-		gist, ok := item.(*gist)
-		if !ok {
-			log.Errorln("could not assert item to type gist")
-			return cmds
-		}
+		gist, _ := item.(*gist)
 		if gist.id == id {
 			m.mainScreen.gistList.Select(idx)
 			break
@@ -114,6 +130,7 @@ func (m *model) createGist(name string, visibility gistVisibility) []tea.Cmd {
 	}
 
 	cmds = append(cmds, gistCmd, fileCmd, updateFileList)
+	cmds = append(cmds, showInfo("new gist created", info_default))
 
 	return cmds
 }
@@ -123,14 +140,16 @@ func (m *model) deleteGist(g *gist) []tea.Cmd {
 	if g.status == gist_status_published {
 		_, err := m.client.Gists.Delete(context.Background(), g.id)
 		if err != nil {
-			log.Errorf("Could not delete gist:\n%w", err)
-			return nil
+			log.Errorf("could not delete gist:\n%w", err)
+			cmds = append(cmds, showInfo("could not delete gist", info_error))
+			return cmds
 		}
 	} else {
 		err := storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(g.id)))
 		if err != nil {
-			log.Errorf("Could not delete draft gist:\n%w", err)
-			return nil
+			log.Errorf("could not delete draft gist:\n%w", err)
+			cmds = append(cmds, showInfo("could not delete draft gist", info_error))
+			return cmds
 		}
 	}
 
@@ -144,16 +163,14 @@ func (m *model) deleteGist(g *gist) []tea.Cmd {
 		}
 		m.mainScreen.gistList.Select(idx)
 		gItem := m.mainScreen.gistList.SelectedItem()
-		selectedGist, ok := gItem.(*gist)
-		if !ok {
-			log.Errorf("Could not assert selectedGist to type gist, got %T", selectedGist)
-			return nil
-		}
+		selectedGist, _ := gItem.(*gist)
 		cmd := m.mainScreen.fileList.SetItems(m.mainScreen.gists[selectedGist])
 		cmds = append(cmds, cmd)
 		_, updateList := m.mainScreen.fileList.Update(nil)
 		cmds = append(cmds, updateList)
 	}
+
+	cmds = append(cmds, showInfo("gist deleted", info_default))
 
 	return cmds
 }
@@ -184,9 +201,7 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 	for _, item := range gistFiles {
 		file, _ := item.(file)
 		if file.title == title {
-			cmds = append(cmds, func() tea.Msg {
-				return errMsg{err: errors.New("Filename should be unique")}
-			})
+			cmds = append(cmds, showInfo("filename should be unique", info_error))
 			return cmds
 		}
 	}
@@ -202,8 +217,9 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 
 		response, _, err := m.client.Gists.Edit(context.Background(), gist.id, &g)
 		if err != nil {
-			log.Errorf("Could not create gist file\n %v", err)
-			return nil
+			log.Errorf("could not create gist file\n %v", err)
+			cmds = append(cmds, showInfo("could not create gist file", info_error))
+			return cmds
 		}
 
 		for _, file := range response.Files {
@@ -231,6 +247,7 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 	})
 	if err := storage.db.Insert(string(collectionGistContent), doc); err != nil {
 		log.Errorln(err.Error())
+		cmds = append(cmds, showInfo("could not insert into db", info_error))
 		return cmds
 	}
 
@@ -241,6 +258,7 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 	_, updateFileList := m.mainScreen.fileList.Update(nil)
 
 	cmds = append(cmds, fileCmd, updateFileList)
+	cmds = append(cmds, showInfo("new file created", info_default))
 
 	return cmds
 }
@@ -248,11 +266,7 @@ func (m *model) createFile(title string, gist *gist) []tea.Cmd {
 func (m *model) upload(pane pane) []tea.Cmd {
 	var cmds []tea.Cmd
 	gItem := m.mainScreen.gistList.SelectedItem()
-	g, ok := gItem.(*gist)
-	if !ok {
-		log.Errorf("Cannot assert gist to type gist, got %T\n", g)
-		return nil
-	}
+	g, _ := gItem.(*gist)
 
 	if pane == PANE_FILES {
 		return cmds
@@ -271,11 +285,7 @@ func (m *model) upload(pane pane) []tea.Cmd {
 
 	files := []file{}
 	for _, item := range m.mainScreen.fileList.Items() {
-		file, ok := item.(file)
-		if !ok {
-			log.Errorf("Cannot assert file to type file, got %T\n", file)
-			return nil
-		}
+		file, _ := item.(file)
 		gist.Files[github.GistFilename(file.title)] = github.GistFile{
 			Filename: &file.title,
 			Content:  &file.content,
@@ -286,19 +296,22 @@ func (m *model) upload(pane pane) []tea.Cmd {
 	if g.status == gist_status_drafted {
 		r, _, err := m.client.Gists.Create(context.Background(), &gist)
 		if err != nil {
-			log.Errorf("Could not create gist\n%w", err)
-			return nil
+			log.Errorf("could not create gist on upload\n%w", err)
+			cmds = append(cmds, showInfo("could not create gist on upload", info_error))
+			return cmds
 		}
 		response = r
 		err = storage.db.Delete(query.NewQuery(string(collectionDraftedGists)).Where(query.Field("id").Eq(g.id)))
 		if err != nil {
-			log.Errorf("Could not delete draft gist %q\n%w", g.name, err)
+			log.Errorf("could not delete draft gist %q\n%w", g.name, err)
+			cmds = append(cmds, showInfo("could not create draft gist", info_error))
 			return nil
 		}
 	} else {
 		r, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
 		if err != nil {
-			log.Errorf("Could not update gist files\n%w", err)
+			log.Errorf("could not update gist files\n%w", err)
+			cmds = append(cmds, showInfo("could not create draft gist", info_error))
 			return nil
 		}
 		response = r
@@ -331,9 +344,10 @@ func (m *model) upload(pane pane) []tea.Cmd {
 
 				if err := storage.db.Update(q, updates); err != nil {
 					log.Errorf(
-						"Could not update gist file %q in the collection\n%v",
+						"could not update gist file %q in the collection\n%v",
 						respFile.GetFilename(), err,
 					)
+
 					return cmds
 				}
 				break
@@ -364,13 +378,16 @@ func (m *model) upload(pane pane) []tea.Cmd {
 	cmds = append(cmds, cmd)
 	_, updatedFileList := m.mainScreen.fileList.Update(nil)
 	cmds = append(cmds, updatedFileList)
+	cmds = append(cmds, showInfo("gist uploaded", info_default))
 	return cmds
 }
 
-func (m *model) deleteFile(g *gist) tea.Cmd {
+func (m *model) deleteFile(g *gist) []tea.Cmd {
+	cmds := []tea.Cmd{}
 	f, ok := m.mainScreen.fileList.SelectedItem().(file)
 	if !ok || f.gistId != g.id {
-		log.Errorf("Cannot get the selected file")
+		log.Errorf("cannot get the selected file")
+		cmds = append(cmds, showInfo("cannot get the selected file", info_error))
 		return nil
 	}
 
@@ -383,7 +400,8 @@ func (m *model) deleteFile(g *gist) tea.Cmd {
 		}
 		_, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
 		if err != nil {
-			log.Errorf("Could not delete gist file %q from Github\n%w", f.title, err)
+			log.Errorf("could not delete gist file %q from Github\n%w", f.title, err)
+			cmds = append(cmds, showInfo("could not delete gist file", info_error))
 			return nil
 		}
 
@@ -391,7 +409,7 @@ func (m *model) deleteFile(g *gist) tea.Cmd {
 
 	err := storage.db.Delete(query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id)))
 	if err != nil {
-		log.Errorf("Could not delete file %q from collection\n", f.title)
+		cmds = append(cmds, showInfo("could not delete file from collection", info_error))
 		return nil
 	}
 
@@ -408,18 +426,17 @@ func (m *model) deleteFile(g *gist) tea.Cmd {
 		m.mainScreen.fileList.Select(idx)
 	}
 
-	_, cmd := m.mainScreen.fileList.Update(nil)
-	return cmd
+	_, updatedFileList := m.mainScreen.fileList.Update(nil)
+	cmds = append(cmds, updatedFileList)
+	cmds = append(cmds, showInfo("file deleted", info_default))
+
+	return cmds
 }
 
 func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 	var cmds []tea.Cmd
 	gItem := m.mainScreen.gistList.SelectedItem()
-	selectedGist, ok := gItem.(*gist)
-	if !ok {
-		log.Errorf("Could not assert selectedGist to type gist, got %T", selectedGist)
-		return nil
-	}
+	selectedGist, _ := gItem.(*gist)
 
 	gist := github.Gist{
 		Files: map[github.GistFilename]github.GistFile{},
@@ -430,11 +447,7 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 		gist.Description = &newValue
 	} else {
 		fItem := m.mainScreen.fileList.SelectedItem()
-		f, ok := fItem.(file)
-		if !ok {
-			log.Errorf("Could not assert f to type file, got %T", f)
-			return nil
-		}
+		f, _ := fItem.(file)
 		selectedFile = f
 		gist.Files[github.GistFilename(selectedFile.title)] = github.GistFile{
 			Filename: &newValue,
@@ -446,7 +459,8 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 		r, _, err := m.client.Gists.Edit(context.Background(), selectedGist.id, &gist)
 		if err != nil {
 			log.Errorf("Error renaming gist with id %q\n%w", selectedGist.id, err)
-			return nil
+			cmds = append(cmds, showInfo("could not rename file", info_error))
+			return cmds
 		}
 		response = r
 	}
@@ -458,7 +472,8 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 			updates["description"] = newValue
 			if err := storage.db.Update(q, updates); err != nil {
 				log.Errorf("Could not update renamed gist file %q\n%w", newValue, err)
-				return nil
+				cmds = append(cmds, showInfo("could not rename file", info_error))
+				return cmds
 			}
 			selectedGist.name = newValue
 		} else {
@@ -487,6 +502,7 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 
 		if err := storage.db.Update(q, updates); err != nil {
 			log.Errorf("Could not update renamed gist file %q\n%w", newValue, err)
+			cmds = append(cmds, showInfo("could not rename file", info_error))
 			return nil
 		}
 
@@ -501,6 +517,8 @@ func (m *model) rename(pane pane, newValue string) []tea.Cmd {
 
 		cmds = append(cmds, m.mainScreen.fileList.SetItem(fileIdx, selectedFile))
 	}
+
+	cmds = append(cmds, showInfo("renamed successfully", info_default))
 
 	return cmds
 }
@@ -554,19 +572,11 @@ func (m *model) reInitDialog(msg tea.Msg, formType formType) tea.Cmd {
 		switch m.mainScreen.currentPane {
 		case PANE_GISTS:
 			item := m.mainScreen.gistList.SelectedItem()
-			gist, ok := item.(*gist)
-			if !ok {
-				log.Errorf("Could not assert gist to type gist, got %T", gist)
-				return nil
-			}
+			gist, _ := item.(*gist)
 			value = gist.name
 		case PANE_FILES:
 			item := m.mainScreen.fileList.SelectedItem()
-			file, ok := item.(file)
-			if !ok {
-				log.Errorf("Could not assert file to type file, got %T", file)
-				return nil
-			}
+			file, _ := item.(file)
 			value = file.title
 		default:
 			return nil
@@ -633,9 +643,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case errMsg:
-		log.Errorln(msg.err.Error())
-		return m, nil
+	case infoMsg:
+		if msg.variant == info_error {
+			log.Errorln(msg.msg)
+		}
+		m.infoMsg = &msg
+		// only persist m.infoMsg for a short period of time
+		return m, tea.Tick(3*time.Second, func(time.Time) tea.Msg { return clearInfoMsg{} })
+
+	case clearInfoMsg:
+		m.infoMsg = nil
 
 	case authSuccessMsg:
 		m.client = msg.client
@@ -681,7 +698,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if pane == PANE_GISTS {
 				cmds = append(cmds, m.deleteGist(gist)...)
 			} else {
-				cmds = append(cmds, m.deleteFile(gist))
+				cmds = append(cmds, m.deleteFile(gist)...)
 			}
 			break
 		case dialog_rename:
@@ -717,6 +734,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !ok {
 			panic("could not perform authModel assertion")
 		}
+		// pipe recent info msg to main model
+		mainModel.infoMsg = m.infoMsg
 		m.mainScreen = mainModel
 		cmd = newCmd
 	case dialogScreen:

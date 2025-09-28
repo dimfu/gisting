@@ -196,7 +196,7 @@ func (d filesDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 	content, err := f.getContent()
 	if err != nil {
 		return func() tea.Msg {
-			return errMsg{err: err}
+			return showInfo(err.Error(), info_error)
 		}
 	}
 

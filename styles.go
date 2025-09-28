@@ -46,9 +46,10 @@ type GistsBaseStyle struct {
 }
 
 type Styles struct {
-	Files  FilesStyle
-	Gists  GistsStyle
-	Dialog DialogStyle
+	InfoLabel lipgloss.Style
+	Files     FilesStyle
+	Gists     GistsStyle
+	Dialog    DialogStyle
 }
 
 func DefaultStyles() Styles {
@@ -64,6 +65,7 @@ func DefaultStyles() Styles {
 	// brightRed := lipgloss.Color("#e49393")
 
 	return Styles{
+		InfoLabel: lipgloss.NewStyle().Height(1).Foreground(gray),
 		Gists: GistsStyle{
 			Focused: GistsBaseStyle{
 				Base:       lipgloss.NewStyle().Width(40).Height(1),

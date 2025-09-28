@@ -18,8 +18,6 @@ const (
 	auth_prompt_secrets
 )
 
-type errMsg struct{ err error }
-
 type authModel struct {
 	loadingSpinner spinner.Model
 	state          authState
@@ -45,7 +43,7 @@ func (m *authModel) authenticate() tea.Cmd {
 		client := github.NewClient(nil).WithAuthToken(cfg.AccessToken)
 		user, _, err := client.Users.Get(ctx, "")
 		if user == nil {
-			return errMsg{err: err}
+			return showInfo(err.Error(), info_error)
 		}
 		return authSuccessMsg{client}
 	}
@@ -128,8 +126,10 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, m.form.Init()
-	case errMsg:
-		log.Errorln(msg.err.Error())
+	case infoMsg:
+		if msg.variant == info_error {
+			log.Errorln(msg.msg)
+		}
 		return m, nil
 	default:
 		if m.state == auth_prompt_secrets && m.form != nil {

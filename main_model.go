@@ -33,22 +33,20 @@ const (
 )
 
 type mainModel struct {
-	gists map[*gist][]list.Item
-
-	keymap Keymap
-
+	gists  map[*gist][]list.Item
 	client *github.Client
 
-	width  int
-	height int
+	currentPane pane
+	width       int
+	height      int
+	infoMsg     *infoMsg
 
 	// tui area
 	gistList list.Model
 	fileList list.Model
 	editor   editor.Model
 	help     help.Model
-
-	currentPane pane
+	keymap   Keymap
 
 	FilesStyle FilesBaseStyle
 	GistsStyle GistsBaseStyle
@@ -64,6 +62,7 @@ func newMainModel(client *github.Client) mainModel {
 		currentPane: PANE_GISTS,
 		GistsStyle:  defaultStyle.Gists.Focused,
 		FilesStyle:  defaultStyle.Files.Blurred,
+		infoMsg:     nil,
 	}
 
 	if err := m.getGists(); err != nil {
@@ -294,26 +293,22 @@ func (m *mainModel) getGists() error {
 }
 
 func (m *mainModel) saveFileContent(content string) []tea.Cmd {
+	var cmds []tea.Cmd
 	selectedGist := m.gistList.SelectedItem()
 	if selectedGist == nil {
-		log.Error("Could not get the selected gist data")
-		return nil
+		log.Error("could not get the selected gist data")
+		cmds = append(cmds, showInfo("could not get selected gist data", info_error))
+		return cmds
 	}
-	g, ok := selectedGist.(*gist)
-	if !ok {
-		log.Errorf("Could not assert g to type *gist, got %T", g)
-		return nil
-	}
+	g, _ := selectedGist.(*gist)
 	selectedFile := m.fileList.SelectedItem()
 	if selectedFile == nil {
-		log.Errorln("Could not get the selected file data")
-		return nil
+		log.Errorln("could not get the selected file data")
+		cmds = append(cmds, showInfo("could not get selected file data", info_error))
+		return cmds
 	}
-	f, ok := selectedFile.(file)
-	if !ok {
-		log.Errorf("Could not assert f to type file, got %T\n", f)
-		return nil
-	}
+
+	f, _ := selectedFile.(file)
 
 	updates := map[string]interface{}{
 		"id":        f.id,
@@ -333,15 +328,16 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 		}
 		updatedGist, _, err := m.client.Gists.Edit(context.Background(), g.id, &gist)
 		if err != nil {
-			log.Errorf("Could not update gist file %q from Github\n%w", f.title, err)
-			return nil
+			log.Errorf("could not update gist file %q from Github\n%w", f.title, err)
+			cmds = append(cmds, showInfo("could not update gist from github", info_error))
+			return cmds
 		}
 
 		// update the rawUrl because it changes every update (learned it the hard way)
 		for _, file := range updatedGist.GetFiles() {
 			if file.GetFilename() == f.title {
 				updates["rawUrl"] = file.GetRawURL()
-				log.Printf("Old: %s -> New: %s", f.rawUrl, file.GetRawURL())
+				// log.Printf("Old: %s -> New: %s", f.rawUrl, file.GetRawURL())
 				break
 			}
 		}
@@ -355,8 +351,9 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 
 	q := query.NewQuery(string(collectionGistContent)).Where(query.Field("id").Eq(f.id))
 	if err := storage.db.Update(q, updates); err != nil {
-		log.Errorf("Could not update gist content %q\n%w", f.title, err)
-		return nil
+		log.Errorf("could not gist content on db %q\n%w", f.title, err)
+		cmds = append(cmds, showInfo("could not gist content on db", info_error))
+		return cmds
 	}
 
 	// update the file item with updated data
@@ -372,24 +369,24 @@ func (m *mainModel) saveFileContent(content string) []tea.Cmd {
 		draft:     f.draft,
 	}
 
-	var cmds []tea.Cmd
-
 	idx := m.fileList.Index()
 	g.updatedAt = updateTime
 	m.gists[g][idx] = updatedFile
 
 	cmds = append(cmds, m.fileList.SetItem(idx, updatedFile))
+	cmds = append(cmds, showInfo("gist content saved", info_default))
 
 	return cmds
 }
 
-func (m *mainModel) copyToClipboard() {
+func (m *mainModel) copyToClipboard() tea.Cmd {
 	selectedItem := m.fileList.SelectedItem()
 	f, ok := selectedItem.(file)
 	if !ok {
-		return
+		return showInfo("no file selected", info_default)
 	}
 	clipboard.Write(clipboard.FmtText, []byte(f.content))
+	return showInfo("content copied to clipboard", info_default)
 }
 
 type updateEditorContent struct {
@@ -417,6 +414,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+
 	case editor.SaveMsg:
 		if m.currentPane == PANE_EDITOR {
 			m.editor.Blur()
@@ -497,8 +495,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "y":
 				if m.currentPane != PANE_EDITOR {
-					m.copyToClipboard()
-					return m, nil
+					cmds = append(cmds, m.copyToClipboard())
+					cmds = append(cmds, m.updateActivePane(msg)...)
+					return m, tea.Batch(cmds...)
 				}
 
 			// same thing here, trigger cursor blink on editor on select
@@ -532,13 +531,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.updateActivePane(msg)...)
 		}
 
-	case errMsg:
-		log.Errorln(msg.err.Error())
-		return m, nil
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height - 1
+		m.height = msg.Height - 2
 
 		gv, _ := m.GistsStyle.Base.GetFrameSize()
 		m.gistList.SetSize(45, m.height)
@@ -548,7 +543,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.resetListHeight()
 
-		m.editor.SetSize(m.width-fv-gv, m.height+1)
+		m.editor.SetSize(m.width-fv-gv, m.height+2)
 	default:
 	}
 
@@ -610,6 +605,18 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 }
 
 func (m mainModel) View() string {
+	var infoView string
+	if m.infoMsg != nil && len(m.infoMsg.msg) > 0 {
+		var str string
+		switch m.infoMsg.variant {
+		case info_default:
+			str = fmt.Sprintf("\uea74  %s", m.infoMsg.msg)
+		case info_error:
+			str = fmt.Sprintf("\ue654  %s", m.infoMsg.msg)
+		}
+		infoView = DefaultStyles().InfoLabel.Render(str)
+	}
+
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		lipgloss.JoinVertical(
@@ -619,6 +626,7 @@ func (m mainModel) View() string {
 				m.gistList.View(),
 				m.fileList.View(),
 			),
+			infoView,
 			lipgloss.NewStyle().Render(m.help.View(m.keymap)),
 		),
 		m.editor.View(),
