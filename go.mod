@@ -14,7 +14,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/google/go-github/v74 v74.0.0
 	github.com/google/uuid v1.1.2
-	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.13
+	github.com/ionut-t/goeditor/adapter-bubbletea v0.1.14
 	github.com/ostafen/clover/v2 v2.0.0-alpha.3
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v3 v3.4.1
@@ -46,7 +46,7 @@ require (
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/orderedcode v0.0.1 // indirect
-	github.com/ionut-t/goeditor/core v0.1.8 // indirect
+	github.com/ionut-t/goeditor/core v0.1.9 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
