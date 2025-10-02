@@ -50,7 +50,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:    "gisting",
 		Usage:   "interactive gist management in tui",
-		Version: "1.0.2",
+		Version: "1.0.3",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "theme",
