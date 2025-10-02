@@ -8,6 +8,9 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/styles"
 )
 
 var (
@@ -17,6 +20,7 @@ var (
 type config struct {
 	AccessToken string `json:"access_token"`
 	ConfigPath  string `json:"configPath"`
+	Theme       string `json:"theme"`
 }
 
 func (c *config) hasAccessToken() bool {
@@ -109,6 +113,7 @@ func initConfig() (*config, error) {
 		cfg = config{
 			AccessToken: "",
 			ConfigPath:  configDir,
+			Theme:       "default",
 		}
 
 		if err := writeConfig(configFile, &cfg); err != nil {
@@ -126,7 +131,35 @@ func initConfig() (*config, error) {
 		}
 	}
 
+	if _, err := themeSelect(&cfg); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+func themeSelect(cfg *config) (*chroma.Style, error) {
+	defaultTheme := "nord"
+	if len(cfg.Theme) == 0 {
+		if err := cfg.set("Theme", "default"); err != nil {
+			return nil, err
+		}
+		cfg.Theme = "default"
+	}
+
+	// use nord as the default theme
+	if cfg.Theme == "default" {
+		cfg.Theme = defaultTheme
+	} else {
+		style := styles.Get(cfg.Theme)
+		// if theme selected not found in chroma style list, use defaultTheme instead
+		if style.Name == "swapoff" {
+			cfg.Theme = defaultTheme
+		}
+	}
+
+	style := styles.Get(cfg.Theme)
+	return style, nil
 }
 
 func writeConfig(path string, cfg *config) error {

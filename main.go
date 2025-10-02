@@ -52,15 +52,23 @@ func main() {
 		Usage:   "interactive gist management in tui",
 		Version: "1.0.2",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "theme",
+				Aliases: []string{"t"},
+				Value:   cfg.Theme,
+			},
 			&cli.BoolFlag{
-				Name:    "vimMotion",
+				Name:    "vimmotion",
 				Aliases: []string{"vm"},
-				Usage:   "Using vim motion",
+				Usage:   "using vim motion",
 				Value:   false,
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
-			withVimMotion = c.Bool("vimMotion")
+			withVimMotion = c.Bool("vimmotion")
+			theme := c.String("theme")
+			cfg.set("Theme", theme)
+			cfg.Theme = theme
 			p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 			if _, err := p.Run(); err != nil {
 				return err

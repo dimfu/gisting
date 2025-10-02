@@ -129,7 +129,7 @@ const (
 )
 
 func newDialogModel(width, height int, state dialogState, client *github.Client) dialogModel {
-	defaultStyles := DefaultStyles()
+	defaultStyles := DefaultStyles(cfg)
 	m := dialogModel{
 		width:  width,
 		height: height,

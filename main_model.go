@@ -48,21 +48,23 @@ type mainModel struct {
 	help     help.Model
 	keymap   Keymap
 
-	FilesStyle FilesBaseStyle
-	GistsStyle GistsBaseStyle
+	styles     Styles
+	filesStyle FilesBaseStyle
+	gistsStyle GistsBaseStyle
 }
 
 func newMainModel(client *github.Client) mainModel {
-	defaultStyle := DefaultStyles()
+	defaultStyle := DefaultStyles(cfg)
 	m := mainModel{
 		gists:       map[*gist][]list.Item{},
 		client:      client,
 		keymap:      DefaultKeymap,
 		help:        help.New(),
 		currentPane: PANE_GISTS,
-		GistsStyle:  defaultStyle.Gists.Focused,
-		FilesStyle:  defaultStyle.Files.Blurred,
 		infoMsg:     nil,
+		styles:      defaultStyle,
+		gistsStyle:  defaultStyle.Gists.Focused,
+		filesStyle:  defaultStyle.Files.Blurred,
 	}
 
 	if err := m.getGists(); err != nil {
@@ -86,8 +88,8 @@ func newMainModel(client *github.Client) mainModel {
 		gistList = append(gistList, g)
 	}
 
-	m.gistList = newGistList(gistList, m.GistsStyle)
-	m.fileList = newFileList(m.gists[firstgist], m.FilesStyle)
+	m.gistList = newGistList(gistList, m.gistsStyle)
+	m.fileList = newFileList(m.gists[firstgist], m.filesStyle)
 
 	// dont care about the width and height because we set it inside the tea.WindowSizeMsg
 	textEditor := editor.New(0, 0)
@@ -427,7 +429,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updateEditorContent:
 		m.editor.SetContent(string(msg.content))
-		m.editor.SetLanguage(msg.language, "nord")
+		m.editor.SetLanguage(msg.language, cfg.Theme)
 		editorModel, cmd := m.editor.Update(msg)
 		cmds = append(cmds, cmd)
 		m.editor = editorModel.(editor.Model)
@@ -535,10 +537,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height - 2
 
-		gv, _ := m.GistsStyle.Base.GetFrameSize()
+		gv, _ := m.gistsStyle.Base.GetFrameSize()
 		m.gistList.SetSize(45, m.height)
 
-		fv, _ := m.FilesStyle.Base.GetFrameSize()
+		fv, _ := m.filesStyle.Base.GetFrameSize()
 		m.fileList.SetSize(20, m.height)
 
 		m.resetListHeight()
@@ -561,8 +563,8 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 
 	switch m.currentPane {
 	case PANE_GISTS:
-		m.GistsStyle = DefaultStyles().Gists.Focused
-		m.FilesStyle = DefaultStyles().Files.Blurred
+		m.gistsStyle = m.styles.Gists.Focused
+		m.filesStyle = m.styles.Files.Blurred
 		m.editor.Blur()
 
 		editorModel, updateEditorModel := m.editor.Update(msg)
@@ -575,8 +577,8 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 			return dialogStateChangeMsg(dialog_closed)
 		})
 	case PANE_FILES:
-		m.GistsStyle = DefaultStyles().Gists.Blurred
-		m.FilesStyle = DefaultStyles().Files.Focused
+		m.gistsStyle = m.styles.Gists.Blurred
+		m.filesStyle = m.styles.Files.Focused
 		m.editor.Blur()
 
 		editorModel, updateEditorModel := m.editor.Update(msg)
@@ -587,19 +589,19 @@ func (m *mainModel) updateActivePane(msg tea.Msg) []tea.Cmd {
 			return dialogStateChangeMsg(dialog_closed)
 		})
 	case PANE_EDITOR:
-		m.GistsStyle = DefaultStyles().Gists.Blurred
-		m.FilesStyle = DefaultStyles().Files.Blurred
+		m.gistsStyle = m.styles.Gists.Blurred
+		m.filesStyle = m.styles.Files.Blurred
 		m.editor.Focus()
 		cmds = append(cmds, func() tea.Msg {
 			return dialogStateChangeMsg(dialog_disabled)
 		})
 	}
 
-	m.fileList.Styles.TitleBar = m.FilesStyle.TitleBar
-	m.fileList.Styles.Title = m.FilesStyle.Title
+	m.fileList.Styles.TitleBar = m.filesStyle.TitleBar
+	m.fileList.Styles.Title = m.filesStyle.Title
 
-	m.gistList.Styles.TitleBar = m.GistsStyle.TitleBar
-	m.gistList.Styles.Title = m.GistsStyle.Title
+	m.gistList.Styles.TitleBar = m.gistsStyle.TitleBar
+	m.gistList.Styles.Title = m.gistsStyle.Title
 
 	return cmds
 }
@@ -614,7 +616,7 @@ func (m mainModel) View() string {
 		case info_error:
 			str = fmt.Sprintf("\ue654  %s", m.infoMsg.msg)
 		}
-		infoView = DefaultStyles().InfoLabel.Render(str)
+		infoView = m.styles.InfoLabel.Render(str)
 	}
 
 	return lipgloss.JoinHorizontal(

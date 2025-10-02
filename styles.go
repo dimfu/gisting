@@ -1,7 +1,9 @@
 package main
 
 import (
+	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 type FilesStyle struct {
@@ -52,17 +54,30 @@ type Styles struct {
 	Dialog    DialogStyle
 }
 
-func DefaultStyles() Styles {
+func DefaultStyles(cfg *config) Styles {
+	style, err := themeSelect(cfg)
+	if err != nil {
+		panic("could not get theme's style")
+	}
+
+	primary := lipgloss.Color("#afbee1")   // primary color
+	secondary := lipgloss.Color("#64708d") // primary color subdued
+
+	for _, token := range style.Types() {
+		entry := style.Get(token)
+		switch token {
+		case chroma.Keyword:
+			c, _ := colorful.Hex(entry.Colour.String())
+			brighterFromSubdued := c.BlendRgb(colorful.LinearRgb(1, 1, 1), 0.5)
+			primary = lipgloss.Color(brighterFromSubdued.Hex())
+
+			secondary = lipgloss.Color(entry.Colour.String())
+		}
+	}
+
 	white := lipgloss.Color("#ffffff") // white color
 	gray := lipgloss.Color("241")      // gray color
 	black := lipgloss.Color("235")     // background color
-	// brightBlack := lipgloss.Color("#373b41")
-	// green := lipgloss.Color("#527251")
-	// brightGreen := lipgloss.Color("#bce1af")
-	brightBlue := lipgloss.Color("#afbee1") // primary color
-	blue := lipgloss.Color("#64708d")       // primary color subdued
-	// red := lipgloss.Color("a46060")
-	// brightRed := lipgloss.Color("#e49393")
 
 	return Styles{
 		InfoLabel: lipgloss.NewStyle().Height(1).Foreground(gray),
@@ -70,8 +85,8 @@ func DefaultStyles() Styles {
 			Focused: GistsBaseStyle{
 				Base:       lipgloss.NewStyle().Width(40).Height(1),
 				Title:      lipgloss.NewStyle().Padding(0, 1).Foreground(white),
-				TitleBar:   lipgloss.NewStyle().Background(blue).Width(40).Margin(0, 0, 1, 0).Padding(0, 1).Height(1),
-				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
+				TitleBar:   lipgloss.NewStyle().Background(secondary).Width(40).Margin(0, 0, 1, 0).Padding(0, 1).Height(1),
+				Selected:   lipgloss.NewStyle().Foreground(primary),
 				Unselected: lipgloss.NewStyle().Foreground(gray),
 				NoItems: lipgloss.NewStyle().
 					UnsetBackground().
@@ -82,7 +97,7 @@ func DefaultStyles() Styles {
 				Base:       lipgloss.NewStyle().Width(40).Height(1),
 				Title:      lipgloss.NewStyle().Padding(0, 1).Foreground(gray),
 				TitleBar:   lipgloss.NewStyle().Background(black).Width(40).Margin(0, 0, 1, 0).Padding(0, 1).Height(1).Height(1),
-				Selected:   lipgloss.NewStyle().Foreground(brightBlue),
+				Selected:   lipgloss.NewStyle().Foreground(primary),
 				Unselected: lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
 				NoItems: lipgloss.NewStyle().
 					UnsetBackground().
@@ -93,10 +108,10 @@ func DefaultStyles() Styles {
 		Files: FilesStyle{
 			Focused: FilesBaseStyle{
 				Base:               lipgloss.NewStyle().Width(25).Height(1),
-				TitleBar:           lipgloss.NewStyle().Background(blue).Width(25).Margin(0, 1, 1, 1).Padding(0, 1).Foreground(white).Height(1),
-				SelectedSubtitle:   lipgloss.NewStyle().Foreground(blue),
+				TitleBar:           lipgloss.NewStyle().Background(secondary).Width(25).Margin(0, 1, 1, 1).Padding(0, 1).Foreground(white).Height(1),
+				SelectedSubtitle:   lipgloss.NewStyle().Foreground(secondary),
 				UnselectedSubtitle: lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
-				SelectedTitle:      lipgloss.NewStyle().Foreground(brightBlue),
+				SelectedTitle:      lipgloss.NewStyle().Foreground(primary),
 				UnselectedTitle:    lipgloss.NewStyle().Foreground(gray),
 				NoItems: lipgloss.NewStyle().
 					UnsetBackground().
@@ -106,9 +121,9 @@ func DefaultStyles() Styles {
 			Blurred: FilesBaseStyle{
 				Base:               lipgloss.NewStyle().Width(25).Height(1),
 				TitleBar:           lipgloss.NewStyle().Background(black).Width(25).Margin(0, 1, 1, 1).Padding(0, 1).Foreground(gray).Height(1),
-				SelectedSubtitle:   lipgloss.NewStyle().Foreground(blue),
+				SelectedSubtitle:   lipgloss.NewStyle().Foreground(secondary),
 				UnselectedSubtitle: lipgloss.NewStyle().Foreground(black),
-				SelectedTitle:      lipgloss.NewStyle().Foreground(brightBlue),
+				SelectedTitle:      lipgloss.NewStyle().Foreground(primary),
 				UnselectedTitle:    lipgloss.NewStyle().Foreground(lipgloss.Color("237")),
 				NoItems: lipgloss.NewStyle().
 					UnsetBackground().
@@ -123,7 +138,7 @@ func DefaultStyles() Styles {
 			BlurredTitle:     lipgloss.NewStyle().Foreground(gray),
 			UnselectedOption: lipgloss.NewStyle().Foreground(gray),
 			FieldFocused:     lipgloss.NewStyle().PaddingLeft(1).BorderStyle(lipgloss.ThickBorder()).BorderLeft(true).Foreground(lipgloss.Color(gray)),
-			FocusedButton:    lipgloss.NewStyle().Padding(0, 2).MarginRight(1).Foreground(lipgloss.Color("0")).Background(blue),
+			FocusedButton:    lipgloss.NewStyle().Padding(0, 2).MarginRight(1).Foreground(lipgloss.Color("0")).Background(secondary),
 			BlurredButton:    lipgloss.NewStyle().Padding(0, 2).MarginRight(1).Foreground(lipgloss.Color("7")).Background(lipgloss.Color("0")),
 		},
 	}

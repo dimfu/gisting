@@ -30,7 +30,7 @@ To launch the interactive interface:
 gisting
 
 # To enable vim motion for the editor (recommended)
-gisting -v
+gisting -vm
 ```
 
 ### Command Line Usage
@@ -63,6 +63,15 @@ To list your uploaded and draft gists:
 ```bash
 gisting list
 ```
+
+You can change the TUI theme by using:
+
+```bash
+gisting -t [THEME_NAME]
+```
+
+For now, you are limited to changing the theme to one listed on the
+[Chroma Style Gallery](https://xyproto.github.io/splash/docs/index.html)
 
 See `gisting help` for more detailed command usages.
 
