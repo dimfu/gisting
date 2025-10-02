@@ -22,13 +22,11 @@ type authModel struct {
 	loadingSpinner spinner.Model
 	state          authState
 	mux            *http.ServeMux
-	server         *http.Server
 	form           *huh.Form
 	width          int
 	height         int
 
-	authCtx    context.Context
-	authCancel context.CancelFunc
+	authCtx context.Context
 }
 
 type authSuccessMsg struct {
@@ -79,10 +77,6 @@ func (m authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			if err := m.server.Shutdown(context.Background()); err != nil {
-				panic(err)
-			}
-			m.authCancel()
 			return m, tea.Quit
 		}
 		if m.state == auth_prompt_secrets && m.form != nil {
