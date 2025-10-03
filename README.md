@@ -1,7 +1,7 @@
 # gisting
 
 <p align="center">
-    <img width="500" src="./.github/gisting.png"></img>
+    <img width="1000" src="./.github/main.gif"></img>
 </p>
 
 An interactive gist management inside the terminal that you can use to
