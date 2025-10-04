@@ -75,6 +75,21 @@ For now, you are limited to changing the theme to one listed on the
 
 See `gisting help` for more detailed command usages.
 
+## Key Binds
+
+| Key               | Action                       | Notes                        |
+| ----------------- | ---------------------------- | ---------------------------- |
+| <kbd>tab</kbd>    | Navigate between panes       | —                            |
+| <kbd>ctrl+h</kbd> | Move to left pane            | —                            |
+| <kbd>ctrl+l</kbd> | Move to right pane           | —                            |
+| <kbd>a</kbd>      | Create a new gist or file    | —                            |
+| <kbd>u</kbd>      | Upload current gist          | Only works in **Gist Pane**  |
+| <kbd>d</kbd>      | Delete selected gist or file | —                            |
+| <kbd>r</kbd>      | Rename selected gist or file | —                            |
+| <kbd>y</kbd>      | Copy file content            | Only works in **Files Pane** |
+| <kbd>?</kbd>      | Toggle help menu             | —                            |
+| <kbd>ctrl+c</kbd> | Quit the application         | —                            |
+
 ## Acknowledgements
 
 - [nap](https://github.com/maaslalani/nap) for the huge inspiration.
